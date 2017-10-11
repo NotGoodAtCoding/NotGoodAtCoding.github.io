@@ -3,67 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <title>Stefan Kraus</title>
-    <link rel="stylesheet" href="index.css"/>
-    <link rel="stylesheet" href="buttons.css"/>
-    <script>document.documentElement.setAttribute('data-theme', 'dark')</script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/hack/0.8.0/hack.css">
+    <link rel="stylesheet" href="index.css">
 </head>
 <body>
 <div>
-    <div>
-        <span><a data-button="blue" href="/">Stefan Kraus</a></span>
-        <span><a data-button="blue" href="/documents.html">Documents</a></span>
-        <span><a data-button="blue" href="/experience.html">Experience</a></span>
-        <span><a data-button="blue" href="/projects.html">Projects</a></span>
-        <span><a data-button="blue" href="/reflection.html">Reflection</a></span>
+    <div style="margin: 0 4rem">
+        <span><a class="btn btn-primary btn-ghost" href="/">Stefan Kraus</a></span>
+        <button class="btn btn-primary" onclick="onButtonClick()">BT TEST</button>
     </div>
 
-    <div>
+    <div style="margin: 0 4rem">
         <h1>Overview</h1>
         <hr>
-        <h3>Contents</h3>
+        <h2>About</h2>
+        <p>I'm (Stefan Kraus | Not Good At Coding). Graduating December 2017 from Iowa State University with
+        a Bachelor's Degree in Software Engineering and a Minor in Mathematics. This page is to showcase some
+        of my applicable skills and serve as a reference for myself.</p>
 
-        <h5>Documents</h5>
-        <p>The documents page contains information about my Senior Design project as well as
-            my resume and other documents that show my experience and education.</p>
+        <h2>External Resources</h2>
 
-        <h5>Experience</h5>
-        <p>The experience page has more detail on my internship experience at Workiva
-            and Maverick Software Consulting.</p>
+        <a class="ex-link" href="https://www.linkedin.com/in/stefan-kraus-ab231ab6/" target="_blank">
+            <span>LinkedIn:</span>
+            <img src="linkedin.svg">
+        </a>
 
-        <h5>Projects</h5>
-        <p>The projects page contains information about a few of the many projects
-        I completed at ISU that I found particularly interesting.</p>
-
-        <h5>Reflection</h5>
-        <p>The reflection page contains short statements of growth and experience in
-        some of my General Education classes and during my time at ISU as a whole.</p>
-
-        <h3>Career Objective</h3>
-
-        <p>After graduation, I hope to be able to start a career as a Software Developer
-        in some capacity that allows me to continue to cultivate my skills and has
-        avenues for advancement into different specialities. Since I am still unsure about
-        what exact speciality I want to pursue, having flexibility and a supportive environment
-        are key to my success and I will seek out employers who can offer that.</p>
-
-        <p>Further in the future, I want to be fulfilled by my work and have an impact
-        at least at the company I work for and to the clients they service. I hope to
-        eventually become as helpful a mentor to the less experienced as I have had during
-        my internships.</p>
-
-        <hr>
-
-        <h3>External Resources</h3>
-
-        <p><a href="https://www.linkedin.com/in/stefan-kraus-ab231ab6/" target="_blank">LinkedIn</a></p>
-        <p><a href="https://github.com/NotGoodAtCoding" target="_blank">Github</a></p>
+        <a class="ex-link" href="https://github.com/NotGoodAtCoding" target="_blank">
+            <span>GitHub:</span>
+            <img src="github.svg">
+        </a>
 
         <h3>Contact Information</h3>
 
         <p>Email: <strong>stefanakraus@gmail.com</strong></p>
-        <p>Phone: <strong>774-276-2267</strong></p>
 
     </div>
 </div>
+
+<script>
+    async function onButtonClick() {
+
+        let options = {};
+        options.acceptAllDevices = true;
+
+        try {
+            console.log('Requesting Bluetooth Device...');
+            console.log('with ' + JSON.stringify(options));
+            const device = await navigator.bluetooth.requestDevice(options);
+
+            console.log('> Name:             ' + device.name);
+            console.log('> Id:               ' + device.id);
+            console.log('> Connected:        ' + device.gatt.connected);
+        } catch(error)  {
+            console.log('Argh! ' + error);
+        }
+    }
+</script>
+
 </body>
 </html>
