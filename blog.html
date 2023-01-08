@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Stefan Kraus</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/hack/0.8.0/hack.css">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+<div class="root">
+    <div class="col-12">
+        <span><a href="/">Home</a></span>
+        <span><a href="/blog">Blog</a></span>
+        <span><a href="/playground">Playground</a></span>
+    </div>
+
+    <div class="content">
+        <hr>
+        <h2>Blog</h2>
+
+        <h3>Horizontal vs. Vertical Team Structure</h3>
+        <p>Tags: wagie</p>
+        <p>TL;DR: More like what don't I do here</p>
+        <p>
+            Preface: This is not about ORGANIZATION structure where there
+            are already tons of articles around a trendy way of having a
+            "no-hierarchy" org which I do not find very helpful since 
+            in my humble experience, hierarchical structures will form
+            regardless of formal definition in an internal employee
+            reporting chain. This is about IC-first teams operating in
+            different modes within a larger organization. 
+        </p>
+        <p>
+            Most teams I have been on have this structure, more or less
+            with some exceptions that are not particularly important
+            for the purposes of this post:<br>
+            (PM) Product Manager: Handles direction (customer feedback loops, 
+            strategic paths), consults with other workstreams,
+            major part in organizing incoming work items.<br>
+            (EM) Engineering Manager: Can be involved in tactical paths with senior ICs,
+            day-to-day soft skills with, well, managing ICs.<br>
+            (TL) Tech Lead: Highly involved in both consulting the feasibility
+            and development cost when evaluating strategic and
+            tactical paths, may do architectural design.<br>
+            (IC) Individual Contributor: Mostly there to churn out code.
+        </p>
+        <p>
+            This, in my limited experience, is a vertical team structure. Each
+            member has a very narrow set of responsibilities which means they
+            can specialize without having to over-extend their realm of
+            competency. In this structure, one of the main bottlenecks is
+            communication, since all work has to go through multiple units
+            in order to eventually be done by the IC. In extreme cases, this
+            becomes excruciating, particularly for senior ICs with high
+            capacity for cross-discipline work. 
+        </p>
+        <p>
+            Digression: not-quite-hyperbole of a highly vertical team. The
+            PM starts a cycle of new work intake. This reconciles their
+            strategy with evidence such as retrospective and forward-looking
+            feedback i.e. customer complaints and direct feature asks. This
+            incoming strategy is discussed with the TL in order to set
+            feasibility and expected dev cost for prioritization purposes.
+            Once the strategy is set, the EM and TL can start work on the
+            tactical paths for delivering the larger strategic goal. Then,
+            work is portioned out in as large or small tasks as the ICs
+            are comfortable with and they work to deliver.
+        </p>
+
+        <h3>How to make performance review not suck</h3>
+        <p>Tags: productivity</p>
+        <p>TL;DR: babysit yourself</p>
+        <p>
+            I hear a lot of complaints around performance review, particularly
+            that it is difficult to remember tasks completed, time consuming
+            to report, and generally annoying (isn't it my manager's job to
+            know everything that I've done and make a little report and send
+            it for promo automagically? (no.))<br>
+            You are responsible for your own tracking, accountability, and
+            upwards reporting as part of being a high functioning autonomous
+            IC, which is what we should all strive for. (digression: high
+            autonomy IC is the goal)<br>
+
+        </p>
+        <p>
+            If you followed the steps in Async Standups, then you already have the
+            framework for any performance review. Subdivide your time into relevant
+            frames, typically [day, week, quarter] to track and filter notable
+            achievements. Each frame should only take a few minutes to complete. I
+            have wrapper routines around my tasks in order to make them more efficient
+            and keep in a good uninterrupted flow. This not only allows accomplishments
+            to bubble up, but also gameifies my day leading to a better sense of
+            accomplishment and overall contentment.
+        </p>
+        <p>
+            My optimal taskflow wrapping is: <br>
+            Reference daily goals to set task<br>
+            ??? task ??? <br>
+            Record that the task is done both externally (i.e. outward facing work tracking apps)
+            and then internally on my todo tracker.<br>
+            Human necessary tasks (water intake / output, mobility operation,
+            timeboxed existential crisis, snacks, etc.)<br>
+        </p>
+        <p>
+            By making tracking part of your workflow, you avoid having to scramble
+            later to remember all the tasks you completed. This works particularly
+            well for tasks that are not easily tracked or that do not have
+            artifacts (digression: Horizontal Org work; wtf am I doing?) and while
+            it may be nice to just use a query on your work tracker (get where 
+            assignee=me and completed>-3months) I still prefer tracking in this way
+            for the following reasons:<br>
+            Not all work is accurately tracked in the software<br>
+            Work item documentation can vary wildly<br>
+            Not all things I do are tracked (don't argue that they should be)<br>
+        </p>
+        <p>
+            By implementing quick self-tracking tasks, I have increased my daily
+            flow and made it much easier to track and report performance.
+        </p>
+
+        <h3>Async Standups</h3>
+        <p>Tags: productivity</p>
+        <p>TL;DR: You should have your standup meetings asynchronously in chat. </p>
+        <p>
+            Most of the time spent in standup meetings is wasted. 
+            Here's a simple test you can do: at the end of your next synchronous
+            standup meeting, test either yourself (or another team member, if 
+            you're feeling spicy) on another's update. Most likely, they will not
+            remember and even if they do, they probably don't care. ICs are
+            unlikely to sit idle, which means they will be distractedly working
+            at best or just killing time after being interrupted from focus time.
+        </p>
+        <p>
+            Standups quickly turn into a productivity check which isn't relevant
+            for anyone other than your Engineering Manager, and even then a 15-30
+            minute meeting every day to check that your engineers are doing their
+            job is a waste of time. EMs should be able to trust ICs at a daily
+            timescale.<br>
+            The standup meeting should be reduced to the most relevant info in
+            order of importance:<br><br>
+            0. Asks for the team i.e. code reviews, general questions (though you
+            should wonder why this wasn't asked async in team chat)<br>
+            1. Changes since last standup or that are planned for the day that
+            directly affect the team i.e. API updates <br>
+            2. Adhoc discussions, preferably as breakouts with only those relevant to the conversation
+        </p>
+
+        <p>
+            Enjoy getting 15-30+ minutes back per day.
+        </p>
+
+
+        <h3>Externals</h2>
+
+        <a class="ex-link" href="https://www.linkedin.com/in/stefan-kraus-g/" target="_blank">
+            <img src="linkedin.svg">
+        </a>
+
+        <a class="ex-link" href="https://github.com/NotGoodAtCoding" target="_blank">
+            <img src="github.svg">
+        </a>
+
+    </div>
+</div>
+</body>
+</html>

@@ -1,5 +1,26 @@
+p {
+    text-align: justify;
+}
+
+canvas{
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    margin: auto;
+    border: 2px solid white;
+}
+
+.root {
+    margin: 0 4em;
+}
+
+.content {
+    max-width: 720px;
+}
+
 .ex-link {
-    height: 30rem;
     margin: 0 0.2rem;
 }
 
