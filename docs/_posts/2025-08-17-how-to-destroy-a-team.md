@@ -72,3 +72,5 @@ Things started to slip. We worked on the (doomed) org hierarchy system at the ex
 I cared about the build system. I cared even after I left the team. I cared after I left the company. I care now, writing this. In a way, the destruction of that project and team even led me to a much better career path. When things fall apart, some people make it out OK. I heard that ProductManger was fired a few months after I took a new job, but the team lost, I think, 5 good engineers (no, I don't include myself in that.) The project was abandoned after a total of ~12 devs working for 14 months on it, and instead they went with G_____ A______ which the DevOps team manually set up for all of the hundreds of repos for the org.
 
 As disappointing as that is, it's a better trade according to the [Universal Law of Automation](https://xkcd.com/1205/)
+
+
