@@ -34,7 +34,7 @@ Yes, this is only a thin guise of insightful tips in order to slip in a rant lik
 
 ### The setup
 
-I was working on the "DevOps" team which was composed of smaller teams handling Build, Test, and Release systems. All of which were done in-house due to weird constraints that were difficult to work around with out-of-house solutions in a cost effective way (lol, I'll rant on that later.) Simple enough, it took events from GitHub, built and packaged with docker, exported artifacts, ran unit and integration test suites, e2e tests, then deployed and promoted through our environmentshttps://notgoodatcoding.github.io/rant/2025/08/18/how-to-destroy-a-team.html (dev, staging, pre-prod, prod, global zones.)
+I was working on the "DevOps" team which was composed of smaller teams handling Build, Test, and Release systems. All of which were done in-house due to weird constraints that were difficult to work around with out-of-house solutions in a cost effective way (lol, I'll rant on that later.) Simple enough, it took events from GitHub, built and packaged with docker, exported artifacts, ran unit and integration test suites, e2e tests, then deployed and promoted through our environments (dev, staging, pre-prod, prod, global zones.)
 
 ### Enter complications
 
