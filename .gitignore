@@ -1,6 +1,4 @@
 .idea
-app.js
-node_modules/
-package-lock.json
-package.jsonpost.sh
 post.sh
+.ideas.txt
+.gitignore
