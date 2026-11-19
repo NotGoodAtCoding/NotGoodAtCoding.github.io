@@ -16,8 +16,8 @@ use crate::terrain::{terrain_height, PLAY_AREA_RADIUS};
 /// Earth gravity so arcs feel athletic and responsive at fox scale.
 pub const JUMP_GRAVITY: f32 = 11.5;
 
-/// Hindquarter coil / gather anticipation duration before liftoff (s).
-pub const GATHER_DURATION: f32 = 0.13;
+/// Hindquarter plant / coil / forehand-lift preparation duration before liftoff (s).
+pub const GATHER_DURATION: f32 = 0.22;
 
 /// Post-touchdown spring absorption phase duration (s).
 pub const LANDING_DURATION: f32 = 0.26;
@@ -118,10 +118,10 @@ pub struct JumpState {
     pub last_eval_status: Option<(usize, ApproachVerdict)>,
 }
 
-/// Dynamic takeoff distance (m) scaled by speed and rail height.
+/// Dynamic takeoff distance (m) scaled by speed and rail height (includes Gather runway).
 #[inline]
 pub fn compute_takeoff_distance(speed: f32, rail_height: f32) -> f32 {
-    (0.75 + 0.22 * speed + 0.45 * rail_height).clamp(1.15, 2.45)
+    (0.92 + 0.29 * speed + 0.45 * rail_height).clamp(1.38, 2.95)
 }
 
 /// Solves an apex-targeted parabolic trajectory clearing `obs` from `(pos_xz, fwd_xz, speed)`.
@@ -262,7 +262,7 @@ pub fn evaluate_obstacle_approach(
 
     // Inside commit takeoff distance: decide commit vs refusal.
     // Enforce enough room for the Gather coil so late commits never clip the front rail.
-    let min_commit_dist = (0.35 + speed * GATHER_DURATION * 0.90).min(takeoff_dist * 0.70);
+    let min_commit_dist = (0.35 + speed * GATHER_DURATION * 0.78).min(takeoff_dist * 0.72);
     if dist_to_front <= takeoff_dist {
         if dist_to_front >= min_commit_dist
             && in_gate
@@ -491,10 +491,13 @@ pub fn step_jump_or_ground_locomotion(
         }
         JumpPhase::Gather => {
             jump.phase_time += dt;
+            let gather_t = (jump.phase_time / GATHER_DURATION).clamp(0.0, 1.0);
 
-            // Continue advancing gently along ground during the brief 0.13s gather coil.
-            let mut next_xz =
-                Vec2::new(loco.position.x, loco.position.z) + loco.velocity_xz * (dt * 0.90);
+            // Slightly check stride speed during the coil (hind feet plant & grip turf),
+            // then drive forward into launch at the end of Gather.
+            let stride_scale = 0.82 - 0.14 * (std::f32::consts::PI * gather_t).sin();
+            let mut next_xz = Vec2::new(loco.position.x, loco.position.z)
+                + loco.velocity_xz * (dt * stride_scale);
             let dist = next_xz.length();
             if dist > PLAY_AREA_RADIUS {
                 next_xz = (next_xz / dist) * PLAY_AREA_RADIUS;
