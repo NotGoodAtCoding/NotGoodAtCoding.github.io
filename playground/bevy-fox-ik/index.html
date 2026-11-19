@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bevy Fox IK — NotGoodAtCoding</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <a class="site-title" href="/">NotGoodAtCoding</a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/playground/" aria-current="page">playground</a>
+      <a href="/about.html">about</a>
+    </nav>
+  </header>
+
+  <main class="wide">
+    <h1>Bevy Fox Inverse Kinematics</h1>
+    <div class="meta">
+      <span class="tag">rust · bevy 0.18 · ik · webgl2</span>
+      <span>Terrain-adaptive 2-bone leg IK &amp; multi-bone look-at</span>
+    </div>
+
+    <div class="stage">
+      <canvas id="bevy-canvas" tabindex="0"></canvas>
+      <div id="status" class="status">Loading Bevy Fox IK WebGL2 module…</div>
+    </div>
+
+    <p class="muted">
+      <strong>Controls:</strong>
+      <code>W/A/S/D</code> or <code>Arrows</code> steer (<code>Shift</code> run) ·
+      <code>Mouse</code> aim firefly look-at ·
+      <code>R</code> auto-roam ·
+      <code>I</code> toggle IK ·
+      <code>G</code> debug gizmos ·
+      <code>Space</code> pause ·
+      <code>Enter</code> cycle clip ·
+      <code>-</code>/<code>=</code> speed ·
+      <code>Q</code>/<code>E</code> orbit camera.
+    </p>
+
+    <p class="muted">
+      Pure-Rust analytical 2-bone foot placement, smoothed pelvis/slope alignment,
+      and damped spine/neck/head look-at layered over Bevy's <code>AnimationTransitions</code>.
+      <a href="https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox"><code>Fox.glb</code></a>
+      model licensed under
+      <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>
+      (PixelMannen, tomkranis, Asobo Studio, and scurest).
+    </p>
+  </main>
+
+  <footer>
+    <a href="/playground/">← all playgrounds</a>
+  </footer>
+
+  <script type="module">
+    const canvas = document.getElementById("bevy-canvas");
+    const status = document.getElementById("status");
+    const GAME_KEYS = new Set(["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+
+    canvas.addEventListener("pointerdown", () => canvas.focus({ preventScroll: true }));
+    canvas.addEventListener("keydown", (e) => {
+      if (GAME_KEYS.has(e.code)) e.preventDefault();
+    });
+
+    const onReady = () => {
+      status.hidden = true;
+      canvas.focus({ preventScroll: true });
+    };
+
+    try {
+      const { default: init } = await import("./pkg/bevy_fox_ik.js");
+      await init();
+      onReady();
+    } catch (err) {
+      // winit/Bevy throws a benign control-flow exception when starting its web event loop.
+      if (err?.message?.includes("Using exceptions for control flow")) {
+        onReady();
+      } else {
+        status.textContent =
+          "WASM bundle not built yet (expected ./pkg/bevy_fox_ik.js).";
+        console.error(err);
+      }
+    }
+  </script>
+</body>
+</html>
