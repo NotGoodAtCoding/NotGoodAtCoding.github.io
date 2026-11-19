@@ -3,6 +3,7 @@ members = [
     "crates/webgl-triangle",
     "crates/bevy-scene",
     "crates/bevy-fox-ik",
+    "crates/bevy-fox-course",
 ]
 resolver = "2"
 

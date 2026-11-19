@@ -115,6 +115,91 @@ code {
   border-radius: 3px;
 }
 
+pre {
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.9rem 1rem;
+  margin: 0 0 1.25rem;
+  overflow-x: auto;
+}
+
+pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+
+.formula {
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  background: var(--surface);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 4px 4px 0;
+  padding: 0.7rem 1rem;
+  margin: 0.75rem 0 1.15rem;
+  overflow-x: auto;
+}
+
+blockquote {
+  margin: 0.75rem 0 1.15rem;
+  padding: 0.5rem 1rem;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 0.75rem 0 1.35rem;
+}
+
+.table-wrap table {
+  margin: 0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  margin: 0.75rem 0 1.35rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+th {
+  font-weight: 600;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
+.diagram {
+  margin: 1rem 0 1.5rem;
+  padding: 0.85rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.diagram svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .muted {
   color: var(--muted);
 }
