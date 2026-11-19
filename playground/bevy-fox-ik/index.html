@@ -49,6 +49,11 @@
       <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>
       (PixelMannen, tomkranis, Asobo Studio, and scurest).
     </p>
+
+    <p class="muted">
+      Note: WebGL2 is required to run this example. If it fails to start, check that
+      Hardware Acceleration is enabled in your browser settings.
+    </p>
   </main>
 
   <footer>
@@ -70,18 +75,25 @@
       canvas.focus({ preventScroll: true });
     };
 
-    try {
-      const { default: init } = await import("./pkg/bevy_fox_ik.js");
-      await init();
-      onReady();
-    } catch (err) {
-      // winit/Bevy throws a benign control-flow exception when starting its web event loop.
-      if (err?.message?.includes("Using exceptions for control flow")) {
+    const probe = document.createElement("canvas").getContext("webgl2");
+    if (!probe) {
+      status.textContent =
+        "WebGL2 is unavailable. Check that Hardware Acceleration is enabled in your browser settings.";
+    } else {
+      probe.getExtension("WEBGL_lose_context")?.loseContext();
+      try {
+        const { default: init } = await import("./pkg/bevy_fox_ik.js");
+        await init();
         onReady();
-      } else {
-        status.textContent =
-          "WASM bundle not built yet (expected ./pkg/bevy_fox_ik.js).";
-        console.error(err);
+      } catch (err) {
+        // winit/Bevy throws a benign control-flow exception when starting its web event loop.
+        if (err?.message?.includes("Using exceptions for control flow")) {
+          onReady();
+        } else {
+          status.textContent =
+            "WASM bundle not built yet (expected ./pkg/bevy_fox_ik.js).";
+          console.error(err);
+        }
       }
     }
   </script>
