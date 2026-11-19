@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WebGL2 Shader Sandbox — NotGoodAtCoding</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <a class="site-title" href="/">NotGoodAtCoding</a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/playground/" aria-current="page">playground</a>
+      <a href="/about.html">about</a>
+    </nav>
+  </header>
+
+  <main class="wide">
+    <h1>WebGL2 Shader Sandbox</h1>
+    <div class="meta">
+      <span class="tag">rust · web-sys · webgl2</span>
+      <span>Standalone WASM module</span>
+    </div>
+
+    <div class="stage">
+      <canvas id="canvas"></canvas>
+      <div id="status" class="status">Loading WebAssembly module…</div>
+    </div>
+
+    <p class="muted">
+      Rendered directly from Rust via <code>wasm-bindgen</code> and WebGL2, with no JS frameworks.
+    </p>
+  </main>
+
+  <footer>
+    <a href="/playground/">← all playgrounds</a>
+  </footer>
+
+  <script type="module">
+    const status = document.getElementById("status");
+    try {
+      const { default: init } = await import("./pkg/webgl_triangle.js");
+      await init();
+      status.hidden = true;
+    } catch (err) {
+      status.textContent =
+        "WASM bundle not built yet (expected ./pkg/webgl_triangle.js).";
+      console.error(err);
+    }
+  </script>
+</body>
+</html>

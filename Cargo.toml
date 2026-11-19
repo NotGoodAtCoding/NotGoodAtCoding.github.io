@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "crates/webgl-triangle",
+    "crates/bevy-scene",
+    "crates/bevy-fox-ik",
+]
+resolver = "2"
+
+# Optimized profile for small, fast-loading WebAssembly binaries.
+# Note: leave `strip` unset here so wasm-bindgen can read target_features;
+# `wasm-opt -Oz` strips the output cleanly after wasm-bindgen runs.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
