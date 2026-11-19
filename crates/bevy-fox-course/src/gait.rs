@@ -261,16 +261,21 @@ pub fn update_gait_and_animations(
     gait_state.dwell_secs = next_dwell;
 
     let desired_clip = match jump.phase {
-        JumpPhase::Airborne => CLIP_RUN,
+        JumpPhase::Gather | JumpPhase::Airborne => CLIP_RUN,
         _ => clip_for_gait(gait_state.current),
     };
 
     let target_rate = match jump.phase {
-        JumpPhase::Airborne => 0.35,
-        JumpPhase::Gather => (playback_rate_for_gait(gait_state.current, loco.speed) * 0.72)
-            .clamp(0.45, 1.10),
+        // Freeze/slow the run cycle during takeoff coil and flight so IK owns the
+        // jump silhouette cleanly regardless of prior stride phase.
+        JumpPhase::Airborne => 0.12,
+        JumpPhase::Gather => 0.25,
         _ => playback_rate_for_gait(gait_state.current, loco.speed),
     };
+
+    // Detect fresh touchdown so we sync `Run` to its front-paw strike phase (0.50 s)
+    // and transition out of landing without mid-stride popping.
+    let sync_landing_stride = jump.phase == JumpPhase::Landing && jump.phase_time <= dt * 1.5;
 
     for (mut player, mut transitions) in &mut query {
         if desired_clip != gait_state.active_clip {
@@ -283,6 +288,9 @@ pub fn update_gait_and_animations(
 
         let active_node = animations.nodes[gait_state.active_clip];
         for (node_idx, active) in player.playing_animations_mut() {
+            if sync_landing_stride && *node_idx == animations.nodes[CLIP_RUN] {
+                active.seek_to(0.50);
+            }
             active.set_speed(target_rate);
             if *node_idx == active_node {
                 gait_state.clip_seek_secs = active.seek_time();

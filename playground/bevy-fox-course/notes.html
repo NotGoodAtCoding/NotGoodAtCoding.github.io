@@ -282,16 +282,19 @@ for i in 0..3 {
     </p>
 
     <div class="formula">
-      d<sub>takeoff</sub> = clamp(0.75 + 0.22 &middot; v + 0.45 &middot; h<sub>rail</sub>, 1.15, 2.45) &nbsp;&nbsp;[m]
+      d<sub>takeoff</sub> = clamp(0.92 + 0.29 &middot; v + 0.45 &middot; h<sub>rail</sub>, 1.38, 2.95) &nbsp;&nbsp;[m]
     </div>
 
     <p>
-      A jump commits into a <code>0.13 s</code> <code>Gather</code> coil only when all five
+      A jump commits into a <code>0.22 s</code> <code>Gather</code> preparation phase only when all five
       gates pass: inside rail width (<code>|d<sub>t</sub>| &le; half_w &minus; 0.24</code>),
       sufficient speed (<code>v &ge; v<sub>min</sub></code>), valid approach cone
       (<strong>f</strong> &middot; <strong>a</strong> &ge; cos &theta;<sub>max</sub>),
       player intent alignment (<code>&gt; 0.25</code> so you can always peel off), and safe
-      predicted touchdown inside <code>PLAY_AREA_RADIUS</code>. Liftoff then solves an
+      predicted touchdown inside <code>PLAY_AREA_RADIUS</code>. During <code>Gather</code>,
+      both hind paws pin onto speed-compensated turf anchors directly under the coiling pelvis
+      while the chest pitches upward and the front legs lift off early—producing a clean,
+      repeatable launch regardless of prior running stride phase. Liftoff then solves an
       apex-targeted parabola under <em>g</em> = <code>11.5 m/s&sup2;</code>:
     </p>
 
@@ -375,34 +378,46 @@ for _ in 0..2 {
           <strong>p</strong><sub>mid</sub> = <strong>p</strong><sub>root</sub> + l<sub>1</sub> cos(&alpha;)<strong>d&#770;</strong> + l<sub>1</sub> sin(&alpha;)<strong>b&#770;</strong>
         </div>
         While grounded, stance feathering plants paws cleanly onto <code>terrain_height(x, z)</code>
-        with hind <code>Foot02</code> slope compensation. While airborne (<code>u &isin; [0, 1]</code>),
-        front paws tuck under the chest on ascent (<code>u &lt; 0.52</code>) then reach forward
-        to meet the landing turf, while hind legs push off (<code>u &lt; 0.24</code>), snap
-        high over the rail (<code>0.20..0.80</code>), and unfold slightly after the front paws.
+        with hind <code>Foot02</code> slope compensation. During <code>Gather</code> and
+        <code>Airborne</code> (<code>u &isin; [0, 1]</code>), jump targets are anchored directly
+        to each leg's shoulder/hip joint (<code>root_pos_w</code>) rather than the animated
+        <code>Run</code> paw position—making every jump independent of mid-stride clip phase.
+        Front paws lift early and fold strictly below the chest on ascent before reaching forward
+        to catch the landing turf, while hind hocks push off down-and-back and tuck cleanly
+        <em>behind</em> the pelvis with explicit metatarsal aiming (<code>airborne_hind_foot_dir</code>)
+        so the knees and 31 cm hind feet never clip into the torso. On touchdown,
+        <code>Run</code> syncs to its front-strike phase (<code>0.50 s</code>) and front legs
+        plant ahead of the hind follow-through.
       </li>
       <li><strong>Color-Coded Debug Gizmos (<code>G</code>)</strong> — renders suggested heading (cyan), blended steering (green), avoidance flow (magenta), obstacle approach gates (green/amber), ballistic trajectory (gold), and full 19-bone IK chains.</li>
     </ol>
 
     <pre><code>// crates/bevy-fox-course/src/ik.rs
-pub fn airborne_leg_offset(is_front: bool, u: f32) -> Vec3 {
+// Root-anchored fox-local (dy, dz) jump keyframes from shoulder/hip (meters at FOX_SCALE = 0.02).
+pub fn airborne_leg_root_target(is_front: bool, is_left: bool, u: f32) -> Vec3 {
     let u = u.clamp(0.0, 1.0);
     if is_front {
-        let tuck_bell = if u &lt; 0.52 {
-            (PI * (u / 0.52)).sin().max(0.0).powf(0.85)
-        } else {
-            0.0
-        };
-        let reach_ramp = smoothstep(0.46, 0.88, u);
-        Vec3::new(0.0, 0.24 * tuck_bell - 0.12 * reach_ramp, -0.07 * tuck_bell + 0.22 * reach_ramp)
+        let ue = (u + if is_left { 0.03 } else { -0.03 }).clamp(0.0, 1.0);
+        const FRONT_KEYS: [(f32, Vec2); 5] = [
+            (0.00, Vec2::new(-0.52, 0.16)),
+            (0.28, Vec2::new(-0.39, 0.14)), // tight tuck strictly below chest
+            (0.52, Vec2::new(-0.46, 0.21)),
+            (0.76, Vec2::new(-0.68, 0.28)),
+            (1.00, Vec2::new(-0.80, 0.24)), // front-first landing reach
+        ];
+        let p = sample_curve_vec2(&amp;FRONT_KEYS, ue);
+        Vec3::new(0.0, p.x, p.y)
     } else {
-        let push = if u &lt; 0.24 { (PI * (u / 0.24)).sin().max(0.0) } else { 0.0 };
-        let tuck = if (0.20..=0.80).contains(&amp;u) {
-            (PI * ((u - 0.20) / 0.60)).sin().max(0.0).powf(0.9)
-        } else {
-            0.0
-        };
-        let unfold = smoothstep(0.74, 0.98, u);
-        Vec3::new(0.0, -0.08 * push + 0.24 * tuck - 0.10 * unfold, -0.20 * push + 0.11 * tuck - 0.06 * unfold)
+        let ue = (u + if is_left { -0.02 } else { 0.02 }).clamp(0.0, 1.0);
+        const HIND_KEYS: [(f32, Vec2); 5] = [
+            (0.00, Vec2::new(-0.56, -0.38)), // takeoff drive off planted turf
+            (0.18, Vec2::new(-0.50, -0.48)), // explosive rear thrust
+            (0.50, Vec2::new(-0.34, -0.44)), // hock tucked behind pelvis (zero belly clip)
+            (0.78, Vec2::new(-0.50, -0.28)),
+            (1.00, Vec2::new(-0.64, -0.18)), // staggered hind touchdown
+        ];
+        let p = sample_curve_vec2(&amp;HIND_KEYS, ue);
+        Vec3::new(0.0, p.x, p.y)
     }
 }</code></pre>
 

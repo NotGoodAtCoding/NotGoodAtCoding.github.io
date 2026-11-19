@@ -76,6 +76,12 @@ pub struct FoxIkState {
     pub look_pitch: f32,
     pub leg_weights: [f32; 4],
     pub airborne_blend: f32,
+    /// Per-leg airborne/jump-pose blend (`[FL, FR, HL, HR]`) so front legs lift
+    /// earlier on takeoff and plant earlier on touchdown than hind legs.
+    pub leg_air_blends: [f32; 4],
+    /// World-space takeoff turf anchors `[HL, HR]` pinned when `Gather` begins so
+    /// both hind paws visibly set and grip the ground before launching.
+    pub gather_hind_anchors: Option<[Vec3; 2]>,
 }
 
 impl Default for FoxIkState {
@@ -91,6 +97,8 @@ impl Default for FoxIkState {
             look_pitch: 0.0,
             leg_weights: [1.0; 4],
             airborne_blend: 0.0,
+            leg_air_blends: [0.0; 4],
+            gather_hind_anchors: None,
         }
     }
 }
@@ -173,43 +181,82 @@ pub fn solve_two_bone_positions(
     Some(TwoBoneSolution { mid_pos, end_pos })
 }
 
-/// Computes the continuous fox-local `(0, dy, dz)` paw offset (in meters, fox `+Z`
-/// forward, `+Y` up) across normalized airborne flight progress `u in [0, 1]`.
+/// Helper for piecewise smoothstep interpolation across keyframed `(u, value)` points.
+fn sample_curve_vec2(keys: &[(f32, Vec2)], u: f32) -> Vec2 {
+    let u = u.clamp(0.0, 1.0);
+    for pair in keys.windows(2) {
+        let (u0, v0) = pair[0];
+        let (u1, v1) = pair[1];
+        if u <= u1 {
+            let t = smoothstep(u0, u1, u);
+            return v0.lerp(v1, t);
+        }
+    }
+    keys.last().map(|&(_, v)| v).unwrap_or(Vec2::ZERO)
+}
+
+/// Computes the root-anchored fox-local `(0, dy, dz)` target (in meters, fox `+Z`
+/// forward, `+Y` up) for the 2-bone end-effector (`b_*Hand` for front legs,
+/// `b_*Foot01` hock for hind legs) measured **directly from the shoulder/hip joint**
+/// (`root_pos_w`) across normalized airborne flight progress `u in [0, 1]`.
 ///
-/// - **Front legs**: tuck high under chest on ascent (`u < 0.52`), then extend
-///   forward and downward to reach the landing turf (`u >= 0.52`).
-/// - **Hind legs**: push off backward (`u < 0.24`), snap knees high over the
-///   rail (`0.20..0.80`), then unfold slightly after front paws for staggered landing.
-pub fn airborne_leg_offset(is_front: bool, u: f32) -> Vec3 {
+/// Anchoring to the shoulder/hip rather than the live `Run` clip's animated paw
+/// position guarantees an athletic, non-clipping jump silhouette regardless of
+/// where the running stride happened to be at takeoff:
+/// - **Front legs** (`L = 0.848 m`): lift into a tight tuck strictly below the
+///   chest on ascent (`dy <= -0.39 m`), then reach forward and down to catch the
+///   landing turf first (with subtle left/right lead stagger).
+/// - **Hind legs** (`L = 0.738 m`): drive powerfully down-and-back on push-off,
+///   tuck the hock high and **behind** the pelvis over the rail (`dy = -0.34 m`,
+///   `dz = -0.44 m` — keeping the stifle/knee strictly below the belly!), then
+///   unfold beneath the hips slightly after the front paws for landing.
+pub fn airborne_leg_root_target(is_front: bool, is_left: bool, u: f32) -> Vec3 {
     let u = u.clamp(0.0, 1.0);
     if is_front {
-        // Smooth tuck crest around u = 0.28, transitioning cleanly at u = 0.52 into reach.
-        let tuck_bell = if u < 0.52 {
-            (PI * (u / 0.52)).sin().max(0.0).powf(0.85)
-        } else {
-            0.0
-        };
-        let reach_ramp = smoothstep(0.46, 0.88, u);
-        let dy = 0.24 * tuck_bell - 0.12 * reach_ramp;
-        let dz = -0.07 * tuck_bell + 0.22 * reach_ramp;
-        Vec3::new(0.0, dy, dz)
+        // Subtle gallop lead-leg offset so left/right front paws don't mirror robotically.
+        let stagger = if is_left { 0.03 } else { -0.03 };
+        let ue = (u + stagger).clamp(0.0, 1.0);
+        // Keyframes of (u, Vec2(dy_from_shoulder, dz_from_shoulder)).
+        const FRONT_KEYS: [(f32, Vec2); 5] = [
+            (0.00, Vec2::new(-0.52, 0.16)),
+            (0.28, Vec2::new(-0.39, 0.14)),
+            (0.52, Vec2::new(-0.46, 0.21)),
+            (0.76, Vec2::new(-0.68, 0.28)),
+            (1.00, Vec2::new(-0.80, 0.24)),
+        ];
+        let p = sample_curve_vec2(&FRONT_KEYS, ue);
+        Vec3::new(0.0, p.x, p.y)
     } else {
-        // Push-off (0..0.24) -> high rail snap (0.20..0.80) -> staggered unfold (0.74..0.98).
-        let push = if u < 0.24 {
-            (PI * (u / 0.24)).sin().max(0.0)
-        } else {
-            0.0
-        };
-        let tuck = if (0.20..=0.80).contains(&u) {
-            (PI * ((u - 0.20) / 0.60)).sin().max(0.0).powf(0.9)
-        } else {
-            0.0
-        };
-        let unfold = smoothstep(0.74, 0.98, u);
-        let dy = -0.08 * push + 0.24 * tuck - 0.10 * unfold;
-        let dz = -0.20 * push + 0.11 * tuck - 0.06 * unfold;
-        Vec3::new(0.0, dy, dz)
+        let stagger = if is_left { -0.02 } else { 0.02 };
+        let ue = (u + stagger).clamp(0.0, 1.0);
+        // Keyframes of (u, Vec2(dy_from_hip, dz_from_hip)) for `b_*Foot01` (hock).
+        // Rest standing hock sits at `(-0.666, -0.162)`; keeping `dz <= -0.18`
+        // and `dy <= -0.34` ensures the knee stays strictly below the torso.
+        const HIND_KEYS: [(f32, Vec2); 5] = [
+            (0.00, Vec2::new(-0.56, -0.38)),
+            (0.18, Vec2::new(-0.50, -0.48)),
+            (0.50, Vec2::new(-0.34, -0.44)),
+            (0.78, Vec2::new(-0.50, -0.28)),
+            (1.00, Vec2::new(-0.64, -0.18)),
+        ];
+        let p = sample_curve_vec2(&HIND_KEYS, ue);
+        Vec3::new(0.0, p.x, p.y)
     }
+}
+
+/// Desired fox-local unit direction for the hind metatarsal (`b_*Foot01 -> b_*Foot02`)
+/// across airborne progress `u in [0, 1]`. Trailing the paws cleanly backward over the
+/// crest prevents the 31 cm metatarsal from ever folding forward into the belly.
+pub fn airborne_hind_foot_dir(u: f32) -> Vec3 {
+    const FOOT_KEYS: [(f32, Vec2); 4] = [
+        // (u, Vec2(dy, dz)) — normalized after interpolation
+        (0.00, Vec2::new(-0.60, -0.80)),
+        (0.24, Vec2::new(-0.42, -0.91)),
+        (0.62, Vec2::new(-0.34, -0.94)),
+        (1.00, Vec2::new(-0.94, 0.34)), // Matches Fox.glb rest standing (-0.299, +0.101)
+    ];
+    let p = sample_curve_vec2(&FOOT_KEYS, u);
+    Vec3::new(0.0, p.x, p.y).normalize_or(Vec3::NEG_Y)
 }
 
 /// Discovers and caches the 19 IK-driven `Fox.glb` bone entities onto [`FoxBody`]
@@ -425,18 +472,52 @@ pub fn apply_fox_ik(
         }
 
         // Smooth airborne transition blend so takeoff & touchdown never pop.
+        let gather_t = if jump.phase == JumpPhase::Gather {
+            (jump.phase_time / GATHER_DURATION).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
         let target_air = if jump.phase == JumpPhase::Airborne {
             1.0
         } else {
             0.0
         };
         let air_rate = if target_air > state.airborne_blend {
-            18.0
+            20.0
         } else {
             14.0
         };
         state.airborne_blend.smooth_nudge(&target_air, air_rate, dt);
         let air_w = state.airborne_blend;
+
+        // Per-leg airborne blend:
+        // - Front legs begin lifting off early in the second half of Gather and plant
+        //   faster on Landing so the forehand leads both takeoff and touchdown.
+        // - Hind legs stay planted on the takeoff turf through Gather, explode into
+        //   flight on liftoff, and follow through slightly after front paws on Landing.
+        for idx in 0..4 {
+            let is_front = rig.legs[idx].is_front;
+            let (target_leg_air, leg_rate) = match jump.phase {
+                JumpPhase::Gather => {
+                    if is_front {
+                        (smoothstep(0.45, 1.0, gather_t), 22.0)
+                    } else {
+                        (smoothstep(0.84, 1.0, gather_t), 22.0)
+                    }
+                }
+                JumpPhase::Airborne => (1.0, 24.0),
+                JumpPhase::Landing => {
+                    if is_front {
+                        (0.0, 20.0)
+                    } else {
+                        (0.0, 11.5)
+                    }
+                }
+                JumpPhase::Grounded => (0.0, 16.0),
+            };
+            state.leg_air_blends[idx].smooth_nudge(&target_leg_air, leg_rate, dt);
+        }
 
         // =====================================================================
         // Stage 1 — FoxBody Pelvis, Pitch & Centripetal Banking
@@ -444,6 +525,33 @@ pub fn apply_fox_ik(
         let root_pos = root_tf.translation;
         let root_fwd = (root_tf.rotation * Vec3::Z).normalize_or(Vec3::Z);
         let root_left = (root_tf.rotation * Vec3::X).normalize_or(Vec3::X);
+
+        // Pin world-space takeoff turf anchors for both hind paws when Gather starts
+        // so the fox visibly plants its hind feet under the pelvis before launching.
+        // Scale lead offset with approach speed so the pelvis rolls squarely over the
+        // planted paws at mid-Gather and pushes cleanly off them at liftoff.
+        if jump.phase == JumpPhase::Gather {
+            if state.gather_hind_anchors.is_none() {
+                let speed_lead = (loco.speed * GATHER_DURATION * 0.34).clamp(0.16, 0.46);
+                let plant_center = root_pos - root_fwd * (0.60 - speed_lead);
+                let left_xz = plant_center + root_left * 0.14 + root_fwd * 0.035;
+                let right_xz = plant_center - root_left * 0.14 - root_fwd * 0.035;
+                state.gather_hind_anchors = Some([
+                    Vec3::new(
+                        left_xz.x,
+                        terrain_height(left_xz.x, left_xz.z) + HIND_PAW_HEIGHT,
+                        left_xz.z,
+                    ),
+                    Vec3::new(
+                        right_xz.x,
+                        terrain_height(right_xz.x, right_xz.z) + HIND_PAW_HEIGHT,
+                        right_xz.z,
+                    ),
+                ]);
+            }
+        } else {
+            state.gather_hind_anchors = None;
+        }
 
         let h_front = terrain_height(root_pos.x + root_fwd.x * 0.45, root_pos.z + root_fwd.z * 0.45);
         let h_back = terrain_height(root_pos.x - root_fwd.x * 0.45, root_pos.z - root_fwd.z * 0.45);
@@ -454,20 +562,25 @@ pub fn apply_fox_ik(
         let slope_pitch = (-((h_front - h_back) / 0.90).atan() * 0.72).clamp(-0.42, 0.42);
         let slope_roll = (((h_left - h_right) / 0.50).atan() * 0.50).clamp(-0.35, 0.35);
 
-        let gather_t = if jump.phase == JumpPhase::Gather {
-            (jump.phase_time / GATHER_DURATION).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        let gather_pitch = -0.14 * (PI * gather_t).sin();
-        let flight_pitch = (-(jump.current_vy.atan2(loco.speed.max(1.5))) * 0.78).clamp(-0.46, 0.46);
+        // During Gather, chest pitches smoothly upward into the exact takeoff angle so
+        // liftoff has zero pitch discontinuity.
+        let launch_pitch_est = jump
+            .trajectory
+            .map(|t| (-(t.vy0.atan2(t.vel_xz.length().max(1.5))) * 0.80).clamp(-0.44, -0.22))
+            .unwrap_or(-0.34);
+        let gather_pitch = launch_pitch_est * smoothstep(0.22, 1.0, gather_t);
+        let flight_pitch = (-(jump.current_vy.atan2(loco.speed.max(1.5))) * 0.80).clamp(-0.46, 0.44);
 
-        let target_pitch = (slope_pitch * (1.0 - air_w) + flight_pitch * air_w + gather_pitch)
-            .clamp(-0.52, 0.52);
+        let target_pitch = if jump.phase == JumpPhase::Gather {
+            (slope_pitch * (1.0 - smoothstep(0.22, 1.0, gather_t)) + gather_pitch)
+                .clamp(-0.52, 0.52)
+        } else {
+            (slope_pitch * (1.0 - air_w) + flight_pitch * air_w).clamp(-0.52, 0.52)
+        };
         let target_roll =
             ((slope_roll + loco.bank_roll) * (1.0 - air_w * 0.85)).clamp(-0.44, 0.44);
 
-        state.body_pitch.smooth_nudge(&target_pitch, 11.0, dt);
+        state.body_pitch.smooth_nudge(&target_pitch, 13.0, dt);
         state.body_roll.smooth_nudge(&target_roll, 11.0, dt);
 
         if let Ok(mut body_tf) = transforms.get_mut(body_entity) {
@@ -506,11 +619,19 @@ pub fn apply_fox_ik(
             ((min_delta_y.min(0.0) + slope_flex_margin).clamp(-0.30, 0.0)) * (1.0 - air_w);
         let crouch_drop = -0.14 * posture.creep_w * (1.0 - air_w);
         let sprint_lift = 0.03 * posture.sprint_w * (1.0 - air_w);
-        let gather_coil = -0.11 * (PI * gather_t).sin();
+        // Deep loaded spring crouch peaking around gather_t = 0.45, then extending
+        // upward smoothly into launch at gather_t = 1.0.
+        let gather_coil = if jump.phase == JumpPhase::Gather {
+            let dip = (PI * (gather_t / 0.88).clamp(0.0, 1.0)).sin().max(0.0);
+            let spring_up = smoothstep(0.68, 1.0, gather_t);
+            -0.16 * dip + 0.03 * spring_up
+        } else {
+            0.0
+        };
 
         let target_pelvis =
             (terrain_pelvis_drop + crouch_drop + sprint_lift + gather_coil).clamp(-0.36, 0.08);
-        state.pelvis_offset.smooth_nudge(&target_pelvis, 12.0, dt);
+        state.pelvis_offset.smooth_nudge(&target_pelvis, 14.0, dt);
 
         // Add damped landing spring directly on top of smoothed pelvis offset so
         // impact compression responds instantaneously without double-smoothing lag.
@@ -532,13 +653,18 @@ pub fn apply_fox_ik(
         let gallop_s1 = posture.gallop_phase.sin() * 0.11 * posture.sprint_w * (1.0 - air_w);
         let gallop_s2 =
             (posture.gallop_phase - 0.55).sin() * 0.08 * posture.sprint_w * (1.0 - air_w);
-        let bascule = (PI * jump.flight_u).sin().max(0.0).powf(1.4) * air_w;
+        let bascule = (PI * jump.flight_u).sin().max(0.0).powf(1.35) * air_w;
+        let gather_spine_coil = if jump.phase == JumpPhase::Gather {
+            (PI * gather_t).sin() * 0.12
+        } else {
+            0.0
+        };
         let creep_flat = 0.05 * posture.creep_w * (1.0 - air_w);
 
         let spine1_local = Quat::from_rotation_y(state.spine_yaw * 0.55)
-            * Quat::from_rotation_x(gallop_s1 + 0.15 * bascule + creep_flat);
+            * Quat::from_rotation_x(gallop_s1 + 0.15 * bascule + gather_spine_coil + creep_flat);
         let spine2_local = Quat::from_rotation_y(state.spine_yaw * 0.45)
-            * Quat::from_rotation_x(gallop_s2 + 0.12 * bascule);
+            * Quat::from_rotation_x(gallop_s2 + 0.12 * bascule + 0.08 * gather_spine_coil);
 
         apply_fox_local_delta(rig.spine1, spine1_local, body_world_rot, &parents, &mut transforms);
         apply_fox_local_delta(rig.spine2, spine2_local, body_world_rot, &parents, &mut transforms);
@@ -662,33 +788,81 @@ pub fn apply_fox_ik(
             let ground_y = terrain_height(paw_pos_w.x, paw_pos_w.z);
             let ground_n = terrain_normal(paw_pos_w.x, paw_pos_w.z);
 
+            let leg_air_w = state.leg_air_blends[idx];
+            let is_left = idx == 0 || idx == 2;
+            let in_gather = jump.phase == JumpPhase::Gather;
+            let gather_plant_w = if in_gather {
+                smoothstep(0.0, 0.36, gather_t) * (1.0 - leg_air_w)
+            } else {
+                0.0
+            };
+
             let target_paw_ground = Vec3::new(paw_pos_w.x, ground_y + rest_h + anim_lift, paw_pos_w.z);
-            let stance_factor = (1.0 - smoothstep(0.04, 0.28, anim_lift)) * (1.0 - air_w);
+            let stance_factor = (1.0 - smoothstep(0.04, 0.28, anim_lift)) * (1.0 - leg_air_w);
             let penetrating = paw_pos_w.y < ground_y + rest_h;
 
-            let desired_weight = if air_w > 0.05 {
-                0.95
+            let desired_weight = if leg_air_w > 0.05 || gather_plant_w > 0.05 {
+                0.98
             } else if penetrating {
                 1.0
             } else {
                 0.32 + 0.68 * stance_factor
             };
-            state.leg_weights[idx].smooth_nudge(&desired_weight, 16.0, dt);
+            state.leg_weights[idx].smooth_nudge(&desired_weight, 18.0, dt);
             let weight = state.leg_weights[idx];
 
             let slope_align = Quat::from_rotation_arc(Vec3::Y, ground_n);
             let slope_delta = Quat::IDENTITY.slerp(slope_align, 0.45 * stance_factor);
-            let grounded_end_target = target_paw_ground - slope_delta * (paw_pos_w - end_pos_w);
+            let mut grounded_end_target = target_paw_ground - slope_delta * (paw_pos_w - end_pos_w);
 
-            // Blend smoothly toward analytical airborne tuck/reach target during jumps.
-            let final_end_target = if air_w > 1e-3 {
-                let local_offset = airborne_leg_offset(leg.is_front, jump.flight_u);
-                let mut air_target = end_pos_w + body_world_rot * local_offset;
-                let air_ground = terrain_height(air_target.x, air_target.z) + rest_h;
+            // Preparatory foot placement during `Gather`:
+            // Plant both hind paws onto their pinned takeoff turf anchors directly under
+            // the coiling hips (and briefly brace front paws before forehand lift) so
+            // takeoff never looks random or mid-stride.
+            if gather_plant_w > 1e-3 {
+                let prep_end_target = if !leg.is_front {
+                    let hind_idx = idx - 2;
+                    let anchor_paw = state
+                        .gather_hind_anchors
+                        .map(|a| a[hind_idx])
+                        .unwrap_or(target_paw_ground);
+                    // Rest metatarsal offset from paw (`Foot02`) up-and-back to hock (`Foot01`).
+                    anchor_paw + body_world_rot * Vec3::new(0.0, 0.295, -0.105)
+                } else {
+                    let side_sign = if is_left { 1.0 } else { -1.0 };
+                    let stagger_z = if is_left { 0.04 } else { -0.04 };
+                    let front_xz = root_pos + root_fwd * (0.40 + stagger_z) + root_left * (0.14 * side_sign);
+                    Vec3::new(
+                        front_xz.x,
+                        terrain_height(front_xz.x, front_xz.z) + FRONT_PAW_HEIGHT,
+                        front_xz.z,
+                    )
+                };
+                grounded_end_target = grounded_end_target.lerp(prep_end_target, gather_plant_w);
+            }
+
+            // Root-anchored analytical jump-pose target (independent of `Run` clip phase!):
+            // guarantees athletic front tuck, non-clipping hind tuck behind the pelvis,
+            // and front-first landing reach on every single jump.
+            let final_end_target = if leg_air_w > 1e-3 {
+                let u_pose = if jump.phase == JumpPhase::Gather {
+                    0.0
+                } else {
+                    jump.flight_u
+                };
+                let root_local_offset = airborne_leg_root_target(leg.is_front, is_left, u_pose);
+                let mut air_target = root_pos_w + body_world_rot * root_local_offset;
+                let air_ground = terrain_height(air_target.x, air_target.z)
+                    + if leg.is_front {
+                        FRONT_PAW_HEIGHT
+                    } else {
+                        // Keep hock at least metatarsal-height above turf near landing.
+                        HIND_PAW_HEIGHT + 0.22
+                    };
                 if air_target.y < air_ground {
                     air_target.y = air_ground;
                 }
-                grounded_end_target.lerp(air_target, air_w)
+                grounded_end_target.lerp(air_target, leg_air_w)
             } else {
                 grounded_end_target
             };
@@ -721,15 +895,57 @@ pub fn apply_fox_ik(
             let lower_delta = Quat::from_rotation_arc(old_lower_dir, new_lower_dir);
             apply_world_rotation_delta(leg.lower, lower_delta, weight, &parents, &mut transforms);
 
-            // 3. Preserve paw orientation with grounded slope conformity.
-            let desired_end_world_rot = (slope_delta * orig_end_world_rot).normalize();
-            set_world_rotation_blended(
-                leg.end,
-                desired_end_world_rot,
-                weight * (1.0 - air_w * 0.55),
-                &parents,
-                &mut transforms,
-            );
+            // 3. Orient end-effector (`b_*Hand` or hind `b_*Foot01`):
+            //    - For hind legs during flight or Gather plant, explicitly aim the 31 cm
+            //      metatarsal (`Foot01 -> Foot02`) so paws stand cleanly on takeoff turf
+            //      during Gather and trail cleanly backward over the rail (zero body clipping!).
+            if let Some(tip) = leg.paw_tip {
+                if leg_air_w > 0.05 || gather_plant_w > 0.05 {
+                    let (e_cur_affine, _) = compute_world_pose(leg.end, &parents, &transforms);
+                    let (t_cur_affine, _) = compute_world_pose(tip, &parents, &transforms);
+                    let e_cur: Vec3 = e_cur_affine.translation.into();
+                    let t_cur: Vec3 = t_cur_affine.translation.into();
+                    let cur_foot_dir = (t_cur - e_cur).normalize_or(Vec3::NEG_Y);
+
+                    let u_pose = if in_gather { 0.0 } else { jump.flight_u };
+                    let desired_air_dir = (body_world_rot * airborne_hind_foot_dir(u_pose))
+                        .normalize_or(Vec3::NEG_Y);
+                    let desired_gather_dir =
+                        (body_world_rot * Vec3::new(0.0, -0.94, 0.34)).normalize_or(Vec3::NEG_Y);
+
+                    let desired_foot_dir = if leg_air_w > 0.05 && gather_plant_w > 0.05 {
+                        desired_gather_dir
+                            .lerp(desired_air_dir, leg_air_w / (leg_air_w + gather_plant_w))
+                            .normalize_or(desired_air_dir)
+                    } else if leg_air_w > 0.05 {
+                        desired_air_dir
+                    } else {
+                        desired_gather_dir
+                    };
+
+                    let foot_delta = Quat::from_rotation_arc(cur_foot_dir, desired_foot_dir);
+                    let foot_w = leg_air_w.max(gather_plant_w).clamp(0.0, 1.0);
+                    apply_world_rotation_delta(leg.end, foot_delta, foot_w, &parents, &mut transforms);
+                } else {
+                    let desired_end_world_rot = (slope_delta * orig_end_world_rot).normalize();
+                    set_world_rotation_blended(
+                        leg.end,
+                        desired_end_world_rot,
+                        weight,
+                        &parents,
+                        &mut transforms,
+                    );
+                }
+            } else {
+                let desired_end_world_rot = (slope_delta * orig_end_world_rot).normalize();
+                set_world_rotation_blended(
+                    leg.end,
+                    desired_end_world_rot,
+                    weight * (1.0 - leg_air_w * 0.55),
+                    &parents,
+                    &mut transforms,
+                );
+            }
 
             // Leg bone gizmos.
             if settings.show_gizmos {
@@ -1049,32 +1265,63 @@ mod tests {
     }
 
     #[test]
-    fn airborne_leg_tuck_and_reach_are_continuous_and_expressive() {
-        // Check continuity across 100 steps in [0, 1] for both front and hind legs.
+    fn airborne_leg_targets_are_continuous_root_anchored_and_never_clip_torso() {
+        // Check continuity across 100 steps in [0, 1] for all 4 legs.
         for is_front in [true, false] {
-            let mut prev = airborne_leg_offset(is_front, 0.0);
-            for i in 1..=100 {
-                let u = i as f32 / 100.0;
-                let cur = airborne_leg_offset(is_front, u);
-                assert!(cur.is_finite());
-                assert!(
-                    (cur - prev).length() < 0.05,
-                    "discontinuity at u={u:.2} for is_front={is_front}"
-                );
-                prev = cur;
+            for is_left in [true, false] {
+                let mut prev = airborne_leg_root_target(is_front, is_left, 0.0);
+                for i in 1..=100 {
+                    let u = i as f32 / 100.0;
+                    let cur = airborne_leg_root_target(is_front, is_left, u);
+                    assert!(cur.is_finite());
+                    assert!(
+                        (cur - prev).length() < 0.04,
+                        "discontinuity at u={u:.2} (is_front={is_front}, is_left={is_left})"
+                    );
+                    // Strictly below shoulder/hip so paws never invert into the torso.
+                    assert!(
+                        cur.y <= -0.32,
+                        "target too high (body clip risk) at u={u:.2}: y={:.3}",
+                        cur.y
+                    );
+                    prev = cur;
+                }
             }
         }
 
-        // Front legs tuck upward on ascent (u=0.26) and reach forward on descent (u=0.85).
-        let front_ascent = airborne_leg_offset(true, 0.26);
-        let front_descent = airborne_leg_offset(true, 0.85);
-        assert!(front_ascent.y > 0.20, "front paws should tuck high on ascent");
-        assert!(front_descent.z > 0.18 && front_descent.y < -0.08, "front paws should reach for landing");
+        // Verify actual Fox.glb hind-leg geometry never clips the knee or paw into the belly.
+        // Rest coordinates from Fox.glb at FOX_SCALE = 0.02:
+        let hip = Vec3::new(0.139, 0.985, -0.597);
+        let knee_rest = Vec3::new(0.139, 0.610, -0.549);
+        let hock_rest = Vec3::new(0.139, 0.319, -0.759);
+        let metatarsal_len = 0.316_f32;
+        for i in 0..=100 {
+            let u = i as f32 / 100.0;
+            let hock_target = hip + airborne_leg_root_target(false, true, u);
+            let sol =
+                solve_two_bone_positions(hip, knee_rest, hock_rest, hock_target, Vec3::Z).unwrap();
+            let paw_tip = sol.end_pos + airborne_hind_foot_dir(u) * metatarsal_len;
 
-        // Hind legs push back at takeoff (u=0.12) and snap high over rail at apex (u=0.50).
-        let hind_push = airborne_leg_offset(false, 0.12);
-        let hind_apex = airborne_leg_offset(false, 0.50);
-        assert!(hind_push.z < -0.15, "hind legs should push off backward");
-        assert!(hind_apex.y > 0.20, "hind legs should tuck high over rail");
+            // Fox belly bottom sits around y = 0.68..0.72; knee must stay strictly below it!
+            assert!(
+                sol.mid_pos.y <= 0.68,
+                "hind knee clipped into belly at u={u:.2}: knee={:?}",
+                sol.mid_pos
+            );
+            // Metatarsal paw tip must stay behind the hip (z < hip.z) throughout takeoff & rail tuck.
+            if u <= 0.72 {
+                assert!(
+                    paw_tip.z < hip.z - 0.15,
+                    "hind paw folded forward into torso at u={u:.2}: paw={:?}",
+                    paw_tip
+                );
+            }
+        }
+
+        // Front legs tuck strictly below chest at u=0.28 and extend forward for landing at u=0.95.
+        let front_tuck = airborne_leg_root_target(true, true, 0.28);
+        let front_land = airborne_leg_root_target(true, true, 0.95);
+        assert!(front_tuck.y > -0.45 && front_tuck.y < -0.34);
+        assert!(front_land.y < -0.74 && front_land.z > 0.20);
     }
 }
