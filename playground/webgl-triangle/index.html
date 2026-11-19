@@ -31,6 +31,11 @@
     <p class="muted">
       Rendered directly from Rust via <code>wasm-bindgen</code> and WebGL2, with no JS frameworks.
     </p>
+
+    <p class="muted">
+      Note: WebGL2 is required to run this example. If it fails to start, check that
+      Hardware Acceleration is enabled in your browser settings.
+    </p>
   </main>
 
   <footer>
@@ -39,14 +44,21 @@
 
   <script type="module">
     const status = document.getElementById("status");
-    try {
-      const { default: init } = await import("./pkg/webgl_triangle.js");
-      await init();
-      status.hidden = true;
-    } catch (err) {
+    const probe = document.createElement("canvas").getContext("webgl2");
+    if (!probe) {
       status.textContent =
-        "WASM bundle not built yet (expected ./pkg/webgl_triangle.js).";
-      console.error(err);
+        "WebGL2 is unavailable. Check that Hardware Acceleration is enabled in your browser settings.";
+    } else {
+      probe.getExtension("WEBGL_lose_context")?.loseContext();
+      try {
+        const { default: init } = await import("./pkg/webgl_triangle.js");
+        await init();
+        status.hidden = true;
+      } catch (err) {
+        status.textContent =
+          "WASM bundle not built yet (expected ./pkg/webgl_triangle.js).";
+        console.error(err);
+      }
     }
   </script>
 </body>

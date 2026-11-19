@@ -341,6 +341,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy-fox-course"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "bevy-fox-ik"
 version = "0.1.0"
 dependencies = [

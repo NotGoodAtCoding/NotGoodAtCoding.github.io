@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Fox Locomotion &amp; IK Notes — NotGoodAtCoding</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <a class="site-title" href="/">NotGoodAtCoding</a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/playground/" aria-current="page">playground</a>
+      <a href="/about.html">about</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Fox Locomotion &amp; 6-Stage IK — Architecture Notes</h1>
+    <div class="meta">
+      <span class="tag">rust · bevy 0.18 · math · zero-js notes</span>
+      <a href="./">&larr; launch live playground</a>
+    </div>
+
+    <p>
+      These notes document the control harness, equestrian jump solver, and 19-bone
+      procedural Inverse Kinematics pipeline inside <code>crates/bevy-fox-course</code>.
+      The entire simulation runs in pure Rust with only Bevy <code>0.18</code>
+      (<code>3d</code> + <code>webgl2</code>) — no external physics engine and no
+      extra assets beyond the 3 embedded clips of <code>Fox.glb</code>.
+    </p>
+
+    <h2>Schedule Architecture (Bevy 0.18)</h2>
+    <p>
+      Locomotion, gait selection, jump ballistics, and gaze priority execute in a
+      deterministic <code>Update</code> chain, publishing pure state resources into a
+      zero-drift <code>PostUpdate</code> IK pass that brackets Bevy's built-in
+      <code>AnimationSystems</code> before <code>TransformSystems::Propagate</code>.
+    </p>
+
+    <div class="diagram" aria-label="Bevy Update and PostUpdate system pipeline diagram">
+      <svg viewBox="0 0 680 256" role="img" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="currentColor" opacity="0.7" />
+          </marker>
+        </defs>
+        <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="currentColor">
+          <!-- Update box -->
+          <rect x="10" y="10" width="660" height="122" rx="6" fill="none" stroke="currentColor" stroke-opacity="0.25" stroke-dasharray="4 3" />
+          <text x="20" y="27" font-weight="700" opacity="0.8">Update (.chain())</text>
+
+          <rect x="20" y="38" width="144" height="28" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="92" y="56" text-anchor="middle">read_player_intent</text>
+
+          <line x1="164" y1="52" x2="184" y2="52" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="186" y="38" width="158" height="28" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="265" y="56" text-anchor="middle">evaluate_jump_decision</text>
+
+          <line x1="344" y1="52" x2="364" y2="52" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="366" y="38" width="148" height="28" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="440" y="56" text-anchor="middle">steering_&amp;_avoidance</text>
+
+          <line x1="514" y1="52" x2="534" y2="52" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="536" y="38" width="124" height="28" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="598" y="56" text-anchor="middle">step_jump/ground</text>
+
+          <path d="M 598 66 L 598 77 L 117 77 L 117 88" fill="none" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="20" y="90" width="194" height="30" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="117" y="109" text-anchor="middle">update_gait_and_animations</text>
+
+          <line x1="214" y1="105" x2="236" y2="105" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="238" y="90" width="174" height="30" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="325" y="109" text-anchor="middle">update_gaze_priority</text>
+
+          <line x1="412" y1="105" x2="434" y2="105" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="436" y="90" width="224" height="30" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="548" y="109" text-anchor="middle">follow_camera &amp; update_hud</text>
+
+          <!-- Connector down to PostUpdate -->
+          <line x1="340" y1="132" x2="340" y2="158" stroke="currentColor" stroke-opacity="0.55" stroke-dasharray="3 3" marker-end="url(#arrow)" />
+          <text x="350" y="149" font-size="10" opacity="0.7">LocomotionState · JumpState · GaitPosture · GazeFocus</text>
+
+          <!-- PostUpdate box -->
+          <rect x="10" y="160" width="660" height="84" rx="6" fill="none" stroke="currentColor" stroke-opacity="0.25" stroke-dasharray="4 3" />
+          <text x="20" y="178" font-weight="700" opacity="0.8">PostUpdate (Zero-Drift IK Bracket)</text>
+
+          <rect x="20" y="192" width="142" height="34" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="91" y="213" text-anchor="middle">restore_pre_ik_pose</text>
+
+          <line x1="162" y1="209" x2="180" y2="209" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="182" y="192" width="134" height="34" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="249" y="213" text-anchor="middle">AnimationSystems</text>
+
+          <line x1="316" y1="209" x2="334" y2="209" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="336" y="192" width="150" height="34" rx="4" fill="none" stroke="var(--accent)" stroke-width="1.5" />
+          <text x="411" y="213" text-anchor="middle" font-weight="700">apply_fox_ik (6-stage)</text>
+
+          <line x1="486" y1="209" x2="504" y2="209" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="506" y="192" width="154" height="34" rx="4" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="583" y="213" text-anchor="middle">Transform::Propagate</text>
+        </g>
+      </svg>
+    </div>
+
+    <h2>1. Non-Holonomic Suggestive Steering &amp; Reversal Braking</h2>
+    <p>
+      Rather than snapping velocity 1-to-1 to <code>WASD</code>, player keys act as a
+      camera-relative <em>suggested heading</em> interpreted through quadruped momentum.
+      Normal key hold stays capped near <code>1.75 m/s</code> for the first
+      <code>0.45 s</code> so feathering stays effortlessly in <em>Creep/Walk</em>, then
+      ramps at <code>2.8 m/s&sup2;</code> to a comfortable <code>2.95 m/s</code> canter.
+      Holding <code>Shift</code> urges <code>5.6 m/s&sup2;</code> acceleration up to
+      <code>6.20 m/s</code>, while <code>C</code>/<code>Ctrl</code> locks into a
+      <code>0.72 m/s</code> stalk.
+    </p>
+    <p>
+      Quadrupeds pivot tightly at a walk and carve sweeping arcs at a gallop, so maximum
+      yaw rate narrows smoothly with forward speed <em>v</em>, and grounded motion advances
+      strictly along the facing vector <strong>f</strong> = (sin &theta;, cos &theta;):
+    </p>
+
+    <div class="formula">
+      &omega;<sub>max</sub>(v) = lerp(4.2, 1.45, smoothstep(0.5, 5.8, v)) &nbsp;&nbsp;[rad/s]<br>
+      R<sub>min</sub>(6.2 m/s) = 6.2 / 1.45 &approx; 4.28 m<br>
+      &omega;<sub>des</sub> = clamp(4.8 &middot; wrap(&theta;<sub>target</sub> &minus; &theta;), &minus;&omega;<sub>max</sub>, +&omega;<sub>max</sub>)<br>
+      <strong>v</strong><sub>xz</sub> = v &middot; (sin &theta;, cos &theta;), &nbsp;&nbsp;
+      corner scrub = 0.70 + 0.30 &middot; max(0, cos &Delta;&theta;)
+    </div>
+
+    <p>
+      If the player suggests a sharp reversal
+      (<strong>d</strong><sub>suggested</sub> &middot; <strong>f</strong><sub>xz</sub> &lt; &minus;0.35)
+      while running faster than <code>2.0 m/s</code>, active braking drops target speed
+      to <code>1.1 m/s</code> at <code>7.5 m/s&sup2;</code> so the fox collects and brakes
+      before pivoting instead of crab-sliding sideways.
+    </p>
+
+    <pre><code>// crates/bevy-fox-course/src/controls.rs
+pub fn compute_max_turn_rate(speed: f32) -> f32 {
+    let t = smoothstep(0.5, 5.8, speed);
+    4.2 + (1.45 - 4.2) * t
+}
+
+// Active braking on sharp reversal (`dot &lt; -0.35` at `speed &gt; 2.0 m/s`).
+if current_speed &gt; 2.0 &amp;&amp; suggested_dir.dot(fwd_xz) &lt; -0.35 {
+    return (1.1, 7.5, true);
+}</code></pre>
+
+    <h2>2. Centripetal Lateral Banking &amp; Spine / Tail Counterbalance</h2>
+    <p>
+      In <code>Fox.glb</code> local space (<code>+Z</code> forward, <code>+X</code> left,
+      <code>+Y</code> up), turning left corresponds to positive yaw rate
+      (&omega; &gt; 0) and requires dropping the left side (<code>+X</code>) via a
+      <em>negative</em> Z-axis roll. Centripetal lateral acceleration <em>a<sub>c</sub> = v &middot; &omega;</em>
+      drives the body lean directly:
+    </p>
+
+    <div class="formula">
+      &phi;<sub>bank</sub> = clamp(&minus;atan2(v &middot; &omega;, 9.81) &middot; 0.65, &minus;0.32, +0.32) &nbsp;&nbsp;[rad]
+    </div>
+
+    <p>
+      Simultaneously, Stage 2 curves <code>b_Spine01_02</code> (55%) and
+      <code>b_Spine02_03</code> (45%) horizontally into the turn (<code>&plusmn;0.34 rad</code>),
+      while Stage 3 swings the three tail segments (<code>b_Tail01_012</code> &rarr;
+      <code>b_Tail03_014</code>) outward with cascaded exponential lag rates
+      <code>[10, 7, 5]</code> so the tip whips smoothly behind each corner. Because the
+      tail extends along <code>&minus;Z</code>, a positive local Y rotation naturally swings
+      its tip toward <code>&minus;X</code> (outward right) on a left turn.
+    </p>
+
+    <pre><code>// crates/bevy-fox-course/src/controls.rs
+pub fn compute_bank_roll(speed: f32, turn_rate: f32) -> f32 {
+    (-((speed * turn_rate).atan2(9.81)) * 0.65).clamp(-0.32, 0.32)
+}
+
+// crates/bevy-fox-course/src/ik.rs (Stage 3 cascaded tail lag)
+let target_tail_yaw = (loco.turn_rate * 0.24).clamp(-0.55, 0.55);
+let tail_rates = [10.0_f32, 7.0, 5.0];
+let mut upstream = target_tail_yaw;
+for i in 0..3 {
+    state.tail_yaw[i].smooth_nudge(&amp;upstream, tail_rates[i], dt);
+    upstream = state.tail_yaw[i];
+}</code></pre>
+
+    <h2>3. Continuous 5-Gait Hysteresis &amp; Procedural Synthesis</h2>
+    <p>
+      <code>Fox.glb</code> contains only three embedded clips (<code>Survey</code>,
+      <code>Walk</code>, <code>Run</code>). We synthesize five continuous gaits by pairing
+      separate rising/falling hysteresis thresholds with a <code>0.14 s</code> anti-chatter
+      dwell timer and continuous procedural posture weights (<code>creep_w</code>,
+      <code>sprint_w</code>):
+    </p>
+
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Gait</th>
+          <th>Enter (rising)</th>
+          <th>Exit (falling)</th>
+          <th>glTF Clip</th>
+          <th>Playback Rate</th>
+          <th>Blend</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Idle</code></td>
+          <td>default</td>
+          <td><code>v &ge; 0.20</code></td>
+          <td><code>Survey</code></td>
+          <td><code>1.0</code></td>
+          <td><code>320 ms</code></td>
+        </tr>
+        <tr>
+          <td><code>Creep</code></td>
+          <td><code>v &ge; 0.20</code> / stalk</td>
+          <td><code>v &lt; 0.14</code></td>
+          <td><code>Walk</code></td>
+          <td><code>(v / 1.65).clamp(0.32, 0.72)</code></td>
+          <td><code>0 ms</code> &harr; Walk</td>
+        </tr>
+        <tr>
+          <td><code>Walk</code></td>
+          <td><code>v &ge; 1.15</code></td>
+          <td><code>v &lt; 0.90</code></td>
+          <td><code>Walk</code></td>
+          <td><code>(v / 1.65).clamp(0.68, 1.45)</code></td>
+          <td><code>240 ms</code> &harr; Run</td>
+        </tr>
+        <tr>
+          <td><code>Run</code></td>
+          <td><code>v &ge; 2.65</code></td>
+          <td><code>v &lt; 2.25</code></td>
+          <td><code>Run</code></td>
+          <td><code>(v / 4.20).clamp(0.62, 1.25)</code></td>
+          <td><code>0 ms</code> &harr; Sprint</td>
+        </tr>
+        <tr>
+          <td><code>Sprint</code></td>
+          <td><code>v &ge; 4.65</code></td>
+          <td><code>v &lt; 4.15</code></td>
+          <td><code>Run</code></td>
+          <td><code>(v / 4.20).clamp(1.10, 1.58)</code></td>
+          <td><code>0 ms</code> &harr; Run</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p>
+      Because <code>Creep &harr; Walk</code> share <code>CLIP_WALK</code> and
+      <code>Run &harr; Sprint</code> share <code>CLIP_RUN</code>, crossing those
+      boundaries never restarts <code>AnimationTransitions</code>. Instead,
+      <code>creep_w</code> lowers the pelvis by <code>&minus;0.14 m</code> (flexing all four
+      legs through 2-bone IK), drops the neck <code>+0.24 rad</code>, and counter-pitches
+      the head <code>&minus;0.20 rad</code> to keep eyes level; <code>sprint_w</code> reads
+      <code>ActiveAnimation::seek_time()</code> to drive a phase-locked spine gallop wave
+      across <code>b_Spine01_02</code> and <code>b_Spine02_03</code>.
+    </p>
+
+    <h2>4. Bidirectional Show-Jump OBB &amp; Parabolic Solver</h2>
+    <p>
+      Each of the 8 fences defines an orthonormal frame
+      (<strong>n</strong><sub>xz</sub>, <strong>t</strong><sub>xz</sub>) so every jump can
+      be taken cleanly from either side. Transforming the fox's position gives signed
+      normal distance <em>d<sub>n</sub></em> and lateral gate offset <em>d<sub>t</sub></em>,
+      with approach normal <strong>a</strong> = sign(&minus;<em>d<sub>n</sub></em>) &middot; <strong>n</strong><sub>xz</sub>.
+      Inside the dynamic takeoff window:
+    </p>
+
+    <div class="formula">
+      d<sub>takeoff</sub> = clamp(0.75 + 0.22 &middot; v + 0.45 &middot; h<sub>rail</sub>, 1.15, 2.45) &nbsp;&nbsp;[m]
+    </div>
+
+    <p>
+      A jump commits into a <code>0.13 s</code> <code>Gather</code> coil only when all five
+      gates pass: inside rail width (<code>|d<sub>t</sub>| &le; half_w &minus; 0.24</code>),
+      sufficient speed (<code>v &ge; v<sub>min</sub></code>), valid approach cone
+      (<strong>f</strong> &middot; <strong>a</strong> &ge; cos &theta;<sub>max</sub>),
+      player intent alignment (<code>&gt; 0.25</code> so you can always peel off), and safe
+      predicted touchdown inside <code>PLAY_AREA_RADIUS</code>. Liftoff then solves an
+      apex-targeted parabola under <em>g</em> = <code>11.5 m/s&sup2;</code>:
+    </p>
+
+    <div class="formula">
+      y<sub>apex</sub> = y<sub>base</sub> + h<sub>rail</sub> + 0.18 + 0.08 &middot; spread<br>
+      v<sub>y0</sub> = &radic;(2 g (y<sub>apex</sub> &minus; y<sub>0</sub>)), &nbsp;&nbsp;
+      t<sub>up</sub> = v<sub>y0</sub> / g<br>
+      t<sub>down</sub> = &radic;(2 (y<sub>apex</sub> &minus; y<sub>land</sub>) / g), &nbsp;&nbsp;
+      T<sub>air</sub> = t<sub>up</sub> + t<sub>down</sub> &nbsp;&nbsp;(2-step terrain height iteration)
+    </div>
+
+    <p>
+      Horizontal launch speed scales within <code>&plusmn;12%</code> so apex lands over the
+      fence center, clearing wide oxers and the triple bar. On touchdown, a near-critically
+      damped second-order spring (<em>k</em> = <code>140</code>, &zeta; = <code>0.88</code>)
+      absorbs impact into the pelvis over <code>0.26 s</code>:
+    </p>
+
+    <div class="formula">
+      y&Prime; = &minus;k &middot; y &minus; (2 &zeta; &radic;k) &middot; y&prime;, &nbsp;&nbsp;
+      v<sub>y,impact</sub> = clamp(0.28 &middot; v<sub>y,touchdown</sub>, &minus;2.8, &minus;0.8)
+    </div>
+
+    <pre><code>// crates/bevy-fox-course/src/jump.rs
+let clearance_margin = 0.18 + 0.08 * obs.spread;
+let y_apex = (obs.base_y + obs.rail_height + clearance_margin).max(start_y + 0.38);
+let vy0 = (2.0 * JUMP_GRAVITY * (y_apex - start_y)).sqrt();
+let t_up = vy0 / JUMP_GRAVITY;
+
+// 2-step terrain height iteration for exact landing point &amp; flight duration.
+let mut total_time = 2.0 * t_up;
+let mut land_xz = pos_xz + vel_xz * total_time;
+let mut y_land = terrain_height(land_xz.x, land_xz.y);
+for _ in 0..2 {
+    let drop = (y_apex - y_land).max(0.05);
+    let t_down = (2.0 * drop / JUMP_GRAVITY).sqrt();
+    total_time = t_up + t_down;
+    land_xz = pos_xz + vel_xz * total_time;
+    y_land = terrain_height(land_xz.x, land_xz.y);
+}</code></pre>
+
+    <h2>5. Zero-Oscillation Wing Avoidance (<code>AvoidanceLock</code>)</h2>
+    <p>
+      When approaching a fence too slowly, too obliquely, or aimed at a wing, naive
+      potential-field repulsion oscillates left and right near dead center
+      (<em>d<sub>t</sub></em> &approx; 0). <code>AvoidanceLock</code> eliminates chatter by
+      scoring a side <em>once</em> on refusal entry and locking it until the obstacle clears:
+    </p>
+
+    <div class="formula">
+      score = 1.4 &middot; d<sub>t</sub> + 0.9 &middot; (<strong>d</strong><sub>suggested</sub> &middot; <strong>t</strong>) + 0.6 &middot; (<strong>f</strong> &middot; <strong>t</strong>)<br>
+      side = +1 if score &ge; 0 else &minus;1 &nbsp;&nbsp;(locked until cleared)<br>
+      <strong>p</strong><sub>clear</sub> = <strong>c</strong><sub>fence</sub> + side &middot; (w<sub>wing</sub> + 0.65)<strong>t</strong> + (0.65 + 0.5 &middot; spread)<strong>a</strong>
+    </div>
+
+    <p>
+      The steering harness blends the player's suggested direction toward
+      <strong>p</strong><sub>clear</sub> with distance-based weight
+      <code>w &isin; [0.42, 0.88]</code>, eases speed by up to <code>&minus;32%</code>, and
+      aims Gaze Priority #2 at the avoided wing upright. A grounded 2D OBB capsule pushout
+      (<code>r = 0.38 m</code>, disabled while airborne) guarantees slow creep input can
+      never clip through a rail.
+    </p>
+
+    <h2>6. 6-Stage <code>PostUpdate</code> IK Pipeline</h2>
+    <p>
+      Before <code>AnimationSystems</code> evaluates keyframes each frame,
+      <code>restore_pre_ik_pose</code> restores all 19 IK-driven bones to the previous
+      frame's pre-IK snapshot so un-keyframed bones never accumulate rotational drift.
+      After animation evaluation (and before <code>TransformSystems::Propagate</code>),
+      <code>apply_fox_ik</code> runs six ordered stages:
+    </p>
+    <ol>
+      <li><strong>Pelvis, Pitch &amp; Banking</strong> — blends 4-point terrain slope alignment with ballistic flight pitch, centripetal roll, creep crouch, gather coil, and landing spring.</li>
+      <li><strong>Spine Curvature, Gallop Wave &amp; Bascule</strong> — adds horizontal turn bend, phase-locked sprint bounce, and a convex mid-jump bascule arch: <code>sin(&pi; u)<sup>1.4</sup></code>.</li>
+      <li><strong>Cascaded Tail Counterbalance</strong> — damped 3-bone whip follow-through and gait pitch.</li>
+      <li><strong>Priority-Stack Look-At</strong> — distributes roll-free slerp across <code>b_Spine02_03</code> (15%), <code>b_Neck_04</code> (35%), and <code>b_Head_05</code> (50%) in priority order: <em>Jump Focus &gt; Avoided Wing &gt; Turn Anticipation &gt; Cursor/Firefly</em>. Runs <em>before</em> front legs because front shoulders descend from <code>b_Spine02_03</code>.</li>
+      <li><strong>Hybrid Grounded / Airborne 2-Bone Leg IK</strong> — solves elbow/knee placement analytically via the Law of Cosines:
+        <div class="formula">
+          cos &alpha; = clamp((l<sub>1</sub>&sup2; + d&sup2; &minus; l<sub>2</sub>&sup2;) / (2 l<sub>1</sub> d), &minus;1, +1)<br>
+          <strong>p</strong><sub>mid</sub> = <strong>p</strong><sub>root</sub> + l<sub>1</sub> cos(&alpha;)<strong>d&#770;</strong> + l<sub>1</sub> sin(&alpha;)<strong>b&#770;</strong>
+        </div>
+        While grounded, stance feathering plants paws cleanly onto <code>terrain_height(x, z)</code>
+        with hind <code>Foot02</code> slope compensation. While airborne (<code>u &isin; [0, 1]</code>),
+        front paws tuck under the chest on ascent (<code>u &lt; 0.52</code>) then reach forward
+        to meet the landing turf, while hind legs push off (<code>u &lt; 0.24</code>), snap
+        high over the rail (<code>0.20..0.80</code>), and unfold slightly after the front paws.
+      </li>
+      <li><strong>Color-Coded Debug Gizmos (<code>G</code>)</strong> — renders suggested heading (cyan), blended steering (green), avoidance flow (magenta), obstacle approach gates (green/amber), ballistic trajectory (gold), and full 19-bone IK chains.</li>
+    </ol>
+
+    <pre><code>// crates/bevy-fox-course/src/ik.rs
+pub fn airborne_leg_offset(is_front: bool, u: f32) -> Vec3 {
+    let u = u.clamp(0.0, 1.0);
+    if is_front {
+        let tuck_bell = if u &lt; 0.52 {
+            (PI * (u / 0.52)).sin().max(0.0).powf(0.85)
+        } else {
+            0.0
+        };
+        let reach_ramp = smoothstep(0.46, 0.88, u);
+        Vec3::new(0.0, 0.24 * tuck_bell - 0.12 * reach_ramp, -0.07 * tuck_bell + 0.22 * reach_ramp)
+    } else {
+        let push = if u &lt; 0.24 { (PI * (u / 0.24)).sin().max(0.0) } else { 0.0 };
+        let tuck = if (0.20..=0.80).contains(&amp;u) {
+            (PI * ((u - 0.20) / 0.60)).sin().max(0.0).powf(0.9)
+        } else {
+            0.0
+        };
+        let unfold = smoothstep(0.74, 0.98, u);
+        Vec3::new(0.0, -0.08 * push + 0.24 * tuck - 0.10 * unfold, -0.20 * push + 0.11 * tuck - 0.06 * unfold)
+    }
+}</code></pre>
+
+    <blockquote>
+      <p>
+        Press <code>G</code> inside the <a href="./">live playground</a> to inspect every
+        vector, approach cone, gold parabolic arc, and IK joint live at 60 FPS.
+      </p>
+    </blockquote>
+  </main>
+
+  <footer>
+    <a href="./">&larr; back to Fox Show-Jumping Course</a>
+    &middot;
+    <a href="/playground/">all playgrounds</a>
+  </footer>
+</body>
+</html>
