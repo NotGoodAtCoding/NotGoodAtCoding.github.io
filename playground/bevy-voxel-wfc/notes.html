@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>3D Voxel WFC Notes — NotGoodAtCoding</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <a class="site-title" href="/">NotGoodAtCoding</a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/playground/" aria-current="page">playground</a>
+      <a href="/about.html">about</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>3D Voxel Wave Function Collapse — Architecture &amp; Code Notes</h1>
+    <div class="meta">
+      <span class="tag">rust · bevy 0.18 · wfc · priority-flood · voxel ao</span>
+      <a href="./">&larr; open live diorama</a>
+    </div>
+
+    <p>
+      Naive 3D Wave Function Collapse with four raw states (<code>Land</code>, <code>Foliage</code>,
+      <code>Water</code>, <code>Air</code>) quickly produces floating dirt chunks, spilling water
+      cubes, and disconnected leaf blobs. This playground solves all three on a
+      <code>20&times;20&times;20</code> (8,000-cell) grid by expanding those four user-facing
+      categories into <strong>15 bitmask states</strong> and running three deterministic passes
+      seeded from a single user string.
+    </p>
+
+    <div class="diagram" aria-label="Three-pass 3D WFC voxel diorama generation pipeline">
+      <svg viewBox="0 0 680 206" role="img" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="currentColor" opacity="0.7" />
+          </marker>
+        </defs>
+        <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="currentColor">
+          <!-- Seed & Guidance -->
+          <rect x="14" y="14" width="652" height="44" rx="5" fill="none" stroke="currentColor" stroke-opacity="0.25" stroke-dasharray="4 3" />
+          <text x="340" y="40" text-anchor="middle">Seed String &rarr; FNV-1a u64 &rarr; Xoshiro256** PRNG + 2D Value Noise TerrainField</text>
+
+          <line x1="340" y1="58" x2="340" y2="78" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <!-- Three Passes -->
+          <rect x="14" y="80" width="204" height="52" rx="5" fill="none" stroke="var(--accent)" stroke-width="1.4" />
+          <text x="116" y="102" text-anchor="middle" font-weight="700">Pass 1: Geology WFC</text>
+          <text x="116" y="120" text-anchor="middle" font-size="10" opacity="0.75">u16 bitmask + AC-3 + sea y</text>
+
+          <line x1="218" y1="106" x2="236" y2="106" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="238" y="80" width="204" height="52" rx="5" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="340" y="102" text-anchor="middle" font-weight="700">Pass 2: Alpine Ponds</text>
+          <text x="340" y="120" text-anchor="middle" font-size="10" opacity="0.75">Barnes Priority-Flood heap</text>
+
+          <line x1="442" y1="106" x2="460" y2="106" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <rect x="462" y="80" width="204" height="52" rx="5" fill="none" stroke="var(--accent)" stroke-width="1.4" />
+          <text x="564" y="102" text-anchor="middle" font-weight="700">Pass 3: Flora WFC</text>
+          <text x="564" y="120" text-anchor="middle" font-size="10" opacity="0.75">directed leaf socket locks</text>
+
+          <line x1="340" y1="132" x2="340" y2="152" stroke="currentColor" stroke-opacity="0.6" marker-end="url(#arrow)" />
+
+          <!-- Mesher -->
+          <rect x="14" y="154" width="652" height="40" rx="5" fill="none" stroke="currentColor" stroke-opacity="0.45" />
+          <text x="340" y="178" text-anchor="middle">Face-Culled Voxel AO Mesher + Recessed Translucent Water &rarr; Bevy WebGL2</text>
+        </g>
+      </svg>
+    </div>
+
+    <h2>1. Compact <code>u16</code> Bitmask Domains &amp; Symmetric Adjacency</h2>
+    <p>
+      Each of the 8,000 cells stores its superposition of still-valid tiles as a single
+      <code>u16</code> bitmask—only <strong>16 KB</strong> for the entire 3D grid. A cell is
+      collapsed when <code>mask &amp; (mask - 1) == 0</code> (power of two), and a contradiction
+      occurs when <code>mask == 0</code>.
+    </p>
+
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Category</th>
+          <th>Internal WFC States (15 bits)</th>
+          <th>Structural Invariant</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Land</strong></td>
+          <td><code>DeepRock</code>, <code>Subsoil</code>, <code>Grass</code>, <code>CliffRock</code></td>
+          <td>Grounded to <code>y = 0</code> (no land above <code>Air</code> or <code>Water</code>); steep drops force <code>CliffRock</code></td>
+        </tr>
+        <tr>
+          <td><strong>Water</strong></td>
+          <td><code>Water</code></td>
+          <td>Flat sea table at <code>y &le; y_sea</code> in Pass 1 + enclosed highland basins in Pass 2</td>
+        </tr>
+        <tr>
+          <td><strong>Foliage</strong></td>
+          <td><code>Bush</code>, <code>TrunkBase</code>, <code>TrunkMid</code>, <code>CanopyCore</code>, <code>Leaf&plusmn;X/&plusmn;Z/Top</code></td>
+          <td>Roots strictly on arable <code>Grass</code>; directed leaf sockets guarantee complete crowns</td>
+        </tr>
+        <tr>
+          <td><strong>Air</strong></td>
+          <td><code>Air</code></td>
+          <td>Pre-collapsed on <code>y = 19</code>; forbidden below sea level</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p>
+      Every adjacency rule is registered through a single symmetric helper so
+      <code>B &isin; allowed[A][d] &hArr; A &isin; allowed[B][&minus;d]</code> holds by construction.
+      During propagation, computing the union of allowed neighbor tiles walks only the set bits
+      of a cell's domain using Kernighan's bit-clearing trick:
+    </p>
+
+    <pre><code>// crates/bevy-voxel-wfc/src/wfc.rs
+fn allow_directed(&amp;mut self, a: Tile, dir: Dir, b: Tile) {
+    self.allowed[a as usize][dir as usize] |= b.bit();
+    self.allowed[b as usize][dir.opposite() as usize] |= a.bit();
+}
+
+pub fn support_mask(&amp;self, mut mask: u16, dir: Dir) -&gt; u16 {
+    let mut union = 0u16;
+    let dir_idx = dir as usize;
+    while mask != 0 {
+        let tz = mask.trailing_zeros() as usize;
+        union |= self.allowed[tz][dir_idx];
+        mask &amp;= mask - 1; // clear lowest set bit
+    }
+    union
+}</code></pre>
+
+    <h2>2. Shannon Entropy, AC-3 Propagation &amp; Undo-Trail Rollback</h2>
+    <p>
+      At each step, the solver picks the uncollapsed cell with the lowest weighted
+      <strong>Shannon entropy</strong> plus a tiny per-cell deterministic tiebreaker
+      <code>&epsilon;</code>:
+    </p>
+
+    <div class="formula">
+      H(c) = ln(&Sigma; w<sub>i</sub>) &minus; (&Sigma; w<sub>i</sub> ln w<sub>i</sub>) / (&Sigma; w<sub>i</sub>) + &epsilon;<sub>c</sub>
+    </div>
+
+    <p>
+      Because speculative collapses can occasionally dead-end inside 3D constraints, copying the
+      entire 8,000-cell array on every trial would waste memory bandwidth. Instead,
+      <code>try_collapse</code> records every narrowed cell onto a lightweight
+      <code>undo_trail: Vec&lt;(usize, u16)&gt;</code> so failed branches unwind in exact reverse
+      order in microseconds, while a small checkpoint stack (saved every 128 collapses) recovers
+      from deeper contradictions:
+    </p>
+
+    <pre><code>// Pseudocode for WfcSolver::step_pass1_once &amp; try_collapse (wfc.rs)
+target = argmin over uncollapsed cells of (cached_entropy[c] + tiebreak[c])
+domain = cells[target]
+
+while domain != 0:
+    chosen = weighted_sample(rng, domain, pass1_weight(field, x, y, z))
+    undo_trail.clear()
+    push (target, cells[target]) onto undo_trail
+    cells[target] = chosen.bit()
+
+    if propagate_ac3_recording_undo(target):
+        update cached_entropy for cells touched in undo_trail
+        if collapsed >= last_checkpoint + 128: save_checkpoint()
+        return Ok
+    else:
+        for (idx, prev_mask) in undo_trail.rev():
+            cells[idx] = prev_mask          // zero-allocation rollback
+        domain &amp;= !chosen.bit()             // ban failed candidate
+
+// All local candidates contradicted -&gt; pop checkpoint, or restart Pass 1 with next retry seed
+if let Some(cp) = checkpoints.pop(): restore(cp)
+else: init_pass1(pass_retries + 1)</code></pre>
+
+    <h2>3. Grounded Land, Automatic Steep Cliffs &amp; Flat Sea Level</h2>
+    <p>
+      Three simple domain rules enforce realistic macro geology without any post-hoc terrain
+      patching:
+    </p>
+    <ul>
+      <li>
+        <strong>Zero floating land (by induction)</strong>: <code>y = 0</code> is pre-collapsed
+        to <code>DeepRock</code>, and no land tile lists <code>Air</code> or <code>Water</code>
+        as a valid <code>-Y</code> neighbor. Every solid voxel is guaranteed to sit on an
+        unbroken solid column down to the base.
+      </li>
+      <li>
+        <strong>Emergent cliff rock on steep drops</strong>: <code>Grass</code> may face
+        <code>Air</code> horizontally, so a gentle 1-voxel hill keeps lush green turf while its
+        <code>Subsoil</code> underneath touches the neighboring column's <code>Grass</code>.
+        On a <strong>2+ voxel drop</strong>, however, <code>Subsoil</code> and
+        <code>DeepRock</code> forbid <code>Air</code> horizontally—forcing AC-3 propagation to
+        collapse the exposed sheer face into <code>CliffRock</code>. Above <code>y &ge; 14</code>,
+        <code>Grass</code> weight drops to zero so alpine peaks cap cleanly in rock.
+      </li>
+      <li>
+        <strong>Flat sea-level water table</strong>: Before Pass 1 starts, <code>Water</code> is
+        masked out above <code>y_sea</code> and <code>Air</code> is masked out at or below
+        <code>y_sea</code>. Any terrain valley dipping below sea level fills dead-flat inside
+        WFC itself, and because <code>Grass</code> forbids <code>Water</code> above, submerged
+        beds automatically collapse into <code>Subsoil</code> or rock.
+      </li>
+    </ul>
+
+    <h2>4. Elevated Enclosed Mountain Ponds (Barnes Priority-Flood)</h2>
+    <p>
+      Hydrostatic containment above sea level is a global property—a mountain bowl can only hold
+      water if a closed rim higher than its floor surrounds it on all paths to the diorama's
+      outer edge. Pass 2 computes each column's exact spill height in
+      <code>O(N log N)</code> using a min-heap seeded from the four perimeter walls:
+    </p>
+
+    <pre><code>// crates/bevy-voxel-wfc/src/wfc.rs (Pass 2: Barnes Priority-Flood)
+// Seed min-heap with the 4 diorama perimeter edges (clamped up to y_sea).
+for (x, z) on perimeter:
+    spill[x][z] = surface[x][z].max(y_sea)
+    heap.push(Reverse((spill[x][z], x, z)))
+
+while let Some(Reverse((h, x, z))) = heap.pop() {
+    for (nx, nz) in four_neighbors(x, z) {
+        if !visited[nx][nz] {
+            visited[nx][nz] = true;
+            let nh = surface[nx][nz].max(h);
+            spill[nx][nz] = nh;
+            heap.push(Reverse((nh, nx, nz)));
+        }
+    }
+}
+
+// Fill interior enclosed bowls strictly above sea level, sorted bottom-up for animation.
+for x in 1..(GRID_SIZE - 1), z in 1..(GRID_SIZE - 1):
+    if spill[x][z] &gt; surface[x][z] &amp;&amp; spill[x][z] &gt; y_sea + 1 {
+        for y in (surface[x][z] + 1).max(y_sea + 1)..=spill[x][z] {
+            queue_pond_water(x, y, z); // also converts submerged Grass -&gt; Subsoil
+        }
+    }</code></pre>
+
+    <p>
+      Because every perimeter edge drains out, no elevated pond voxel can ever hang off the side
+      of the <code>20&times;20</code> cube or touch <code>Air</code> horizontally. Sorting the
+      queued pond voxels by <code>y</code> lets animated mode visibly fill mountain basins layer
+      by layer.
+    </p>
+
+    <h2>5. Zero-Orphan Trees via Directed Canopy Sockets (Pass 3)</h2>
+    <p>
+      In pairwise 6-neighbor WFC, a single generic <code>CanopyLeaf</code> tile that permits
+      <code>Air</code> on all sides will happily spawn floating leaf cubes in midair. Pass 3
+      solves this cleanly by locking Pass 1–2 terrain and introducing <strong>five directed leaf
+      socket tiles</strong> (<code>LeafPosX</code>, <code>LeafNegX</code>, <code>LeafPosZ</code>,
+      <code>LeafNegZ</code>, <code>LeafTop</code>):
+    </p>
+
+    <pre><code>// crates/bevy-voxel-wfc/src/wfc.rs
+// Bidirectional socket locks: a LeafPosX tile MUST sit immediately +X of a CanopyCore!
+table.allow_directed(Tile::CanopyCore, Dir::PosX, Tile::LeafPosX);
+table.allow_directed(Tile::CanopyCore, Dir::NegX, Tile::LeafNegX);
+table.allow_directed(Tile::CanopyCore, Dir::PosZ, Tile::LeafPosZ);
+table.allow_directed(Tile::CanopyCore, Dir::NegZ, Tile::LeafNegZ);
+table.allow_vertical(Tile::CanopyCore, Tile::LeafTop);
+
+// Outer horizontal faces of leaves may touch Air, terrain, or another tree's outer leaf,
+// as long as neither touching face is a CanopyCore socket.
+for &amp;leaf in &amp;Tile::LEAVES {
+    for dir in Dir::HORIZONTAL {
+        if Some(dir) == leaf.leaf_core_dir() { continue; }
+        for &amp;other in &amp;Tile::LEAVES {
+            if Some(dir.opposite()) != other.leaf_core_dir() {
+                table.allow_directed(leaf, dir, other);
+            }
+        }
+    }
+}</code></pre>
+
+    <p>
+      Combined with <code>TrunkBase</code> requiring <code>Grass</code> below and
+      <code>TrunkMid | CanopyCore</code> above (while forbidding adjacent trunks), every tree
+      automatically sprouts strictly on arable meadow grass with guaranteed headroom, natural
+      spacing, and zero half-built crowns or floating leaves.
+    </p>
+
+    <h2>6. Baked Voxel Ambient Occlusion &amp; Zero-Framework HTML Bridge</h2>
+    <p>
+      The custom mesher emits only exposed faces bordering <code>Air</code>, <code>Water</code>,
+      uncollapsed space, or diorama walls. Each vertex samples three coplanar neighbor voxels
+      (<code>side1</code>, <code>side2</code>, <code>corner</code>) to bake classic 4-level
+      voxel Ambient Occlusion:
+    </p>
+
+    <div class="formula">
+      ao = 0 &nbsp;if (side<sub>1</sub> &and; side<sub>2</sub>) &nbsp;else&nbsp; 3 &minus; (side<sub>1</sub> + side<sub>2</sub> + corner)
+    </div>
+
+    <p>
+      To avoid diagonal shading creases caused by Gouraud interpolation across mismatched quad
+      triangles, each quad chooses its split diagonal along the brighter corner pair:
+    </p>
+
+    <pre><code>// crates/bevy-voxel-wfc/src/mesher.rs
+if ao_levels[0] + ao_levels[2] &gt; ao_levels[1] + ao_levels[3] {
+    indices.extend_from_slice(&amp;[v0, v1, v2, v0, v2, v3]);
+} else {
+    indices.extend_from_slice(&amp;[v1, v2, v3, v1, v3, v0]);
+}</code></pre>
+
+    <p>
+      Finally, the raw HTML seed controls outside the canvas communicate with Bevy through a
+      tiny <code>Mutex&lt;VecDeque&lt;BridgeCmd&gt;&gt;</code> queue exported via
+      <code>#[wasm_bindgen]</code> (<code>wfc_set_seed</code>, <code>wfc_set_animate</code>,
+      <code>wfc_finish_now</code>, <code>wfc_get_seed</code>) that a Bevy <code>Update</code>
+      system drains each frame—zero JS frameworks, zero state duplication.
+    </p>
+
+    <blockquote>
+      <p>
+        Try entering custom seed strings (or pressing <code>R</code> and <code>Space</code> to
+        watch Pass 1 &rarr; Pass 2 &rarr; Pass 3 step frame by frame) in the
+        <a href="./">live 3D Voxel WFC diorama</a>.
+      </p>
+    </blockquote>
+  </main>
+
+  <footer>
+    <a href="./">&larr; back to diorama</a> &middot;
+    <a href="/playground/">all playgrounds</a>
+  </footer>
+</body>
+</html>
