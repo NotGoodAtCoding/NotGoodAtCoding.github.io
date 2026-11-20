@@ -29,7 +29,10 @@ fi
 
 for crate in "${CRATES[@]}"; do
   out_name="${crate//-/_}"
-  out_dir="playground/${crate}/pkg"
+  case "$crate" in
+    op-core-wasm) out_dir="op-core/workstation/pkg" ;;
+    *)            out_dir="playground/${crate}/pkg" ;;
+  esac
 
   echo "==> Building ${crate} (profile: ${PROFILE})"
   cargo build --profile "$PROFILE" --target wasm32-unknown-unknown -p "$crate"

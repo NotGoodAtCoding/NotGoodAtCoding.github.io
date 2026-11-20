@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getting Started — op-core</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <a class="site-title" href="/">NotGoodAtCoding</a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/op-core/" aria-current="page">op-core</a>
+      <a href="/playground/">playground</a>
+      <a href="/about.html">about</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>Getting Started with <code>op-core</code></h1>
+    <div class="meta">
+      <a href="/op-core/">&larr; op-core overview</a>
+      <a href="/op-core/workstation/">launch workstation</a>
+      <a href="/op-core/oprecipe-schema.html">.oprecipe schema</a>
+      <a href="/op-core/reference.html">CLI &amp; API reference</a>
+      <a href="https://github.com/NotGoodAtCoding/props">GitHub &rarr;</a>
+    </div>
+
+    <blockquote>
+      <p>
+        <strong>Who this page is for:</strong> Practicing O&amp;P clinicians (CPOs), fabrication
+        technicians, and developers running <code>op-core</code> for the first time—either directly
+        in the browser via Rust/WASM or locally via the Python CLI.
+      </p>
+    </blockquote>
+
+    <h2>1. Zero-Install Browser Workstation (Rust + WASM)</h2>
+    <p>
+      The fastest way to try the full 5-step clinical workflow is the
+      <a href="/op-core/workstation/">in-browser 3D Clinical Workstation</a>, powered by
+      <code>op-core-wasm</code> (zero installs, zero uploads—all STL files stay on your device):
+    </p>
+    <ol>
+      <li><strong>Step 1 — Scan QA:</strong> Click <em>Sample TT</em>, <em>Sample TF</em>, <em>Sample AFO</em>, or upload any patient <code>.stl</code> scan (in mm) to inspect <code>PASS</code>/<code>WARN</code>/<code>FAIL</code> QA checks and <code>20 mm</code> taut-tape slices.</li>
+      <li><strong>Step 2 — Landmarks:</strong> Click <em>Pick on 3D Mesh</em>, then click directly on the 3D limb surface to snap landmarks (<code>pt_bar</code>, <code>fibular_head</code>, <code>tibial_crest</code>, etc.).</li>
+      <li><strong>Step 3 — Rectify:</strong> Adjust non-destructive <code>M<sub>0</sub></code> sliders (or paint sculpt strokes) and preview the radial delta heatmap—compression in blue, relief build-up in amber/red.</li>
+      <li><strong>Step 4 — Shell &amp; Lint:</strong> Tune wall thickness and bench alignment (<code>flexion</code>, <code>adduction</code>, or AFO trimline fillet), then click <em>Compile Shell, .3MF &amp; Carver</em>.</li>
+      <li><strong>Step 5 — Export:</strong> Download <code>device_shell.stl</code>, <code>device_&lt;slicer&gt;.3mf</code>, <code>carver_positive.stl</code>, 4-axis G-code, <code>.oprecipe.json</code>, and traceability dossiers (<code>.json</code>/<code>.md</code>/<code>.pdf</code>).</li>
+    </ol>
+
+    <h2>2. Local Python CLI Setup (Zero External Dependencies)</h2>
+    <p>
+      Clone <a href="https://github.com/NotGoodAtCoding/props"><code>NotGoodAtCoding/props</code></a>.
+      The MVP core runs directly on <strong>Python 3.11 / 3.12+</strong> using only the Python
+      standard library:
+    </p>
+    <pre><code># Launch the local 3D browser UI
+PYTHONPATH=src python3 -m op_core.cli ui --port 8765
+
+# Or install editable so `op-core` is directly on your PATH
+pip install -e .
+op-core --help</code></pre>
+
+    <h2>3. 30-Second Offline CLI Demo</h2>
+    <p>
+      Without a patient <code>.stl</code> on hand, <code>demo</code> generates a synthetic
+      transtibial (TT) residual limb or plantarflexed Ankle-Foot Orthosis (AFO) scan and executes
+      the complete CAD/CAM pipeline:
+    </p>
+    <pre><code># Transtibial socket demo (OrcaSlicer .3mf + CNC carver mold + dossier)
+PYTHONPATH=src python3 -m op_core.cli demo --out-dir ./demo_tt --device tt --target orcaslicer
+
+# Ankle-Foot Orthosis (AFO) demo (ankle neutralization + sole flattening + coaxial joints)
+PYTHONPATH=src python3 -m op_core.cli demo --out-dir ./demo_afo --device afo --target prusaslicer</code></pre>
+
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Output File</th>
+          <th>Who Uses It</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>sample_scan.stl</code></td>
+          <td>Clinician / QA</td>
+          <td>Synthetic raw limb scan (mm units) used as input.</td>
+        </tr>
+        <tr>
+          <td><code>sample.oprecipe.json</code></td>
+          <td>Clinician &amp; Lab</td>
+          <td>Portable, human-readable record of all reductions, reliefs, and alignment angles.</td>
+        </tr>
+        <tr>
+          <td><code>rectified_positive.stl</code></td>
+          <td>Technician</td>
+          <td>Modified limb positive after liner subtraction, compression, and landmark reliefs.</td>
+        </tr>
+        <tr>
+          <td><code>device_shell.stl</code></td>
+          <td>3D Print Tech</td>
+          <td>Watertight printable shell with rounded proximal brim, <code>5&deg;/5&deg;</code> MPT alignment, and captive M6 nut pockets.</td>
+        </tr>
+        <tr>
+          <td><code>device_orcaslicer.3mf</code></td>
+          <td>3D Print Tech</td>
+          <td>Slicer-ready <code>.3mf</code> embedding a <code>100%</code> infill / <code>6</code>-perimeter modifier volume around the distal pyramid zone.</td>
+        </tr>
+        <tr>
+          <td><code>carver_positive.stl</code></td>
+          <td>Central Lab / Carver</td>
+          <td>Positive mold extended with a <code>12&deg;</code> tapered thermoforming draft collar and square-keyed <code>25.4 mm</code> mandrel bore.</td>
+        </tr>
+        <tr>
+          <td><code>device_dossier.json/.md/.pdf</code></td>
+          <td>Clinician / QA</td>
+          <td>Traceability bundle (scan SHA-256, 20 mm circumferences, lint result, and operations log).</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2>4. Chairside Scan QA (<code>op-core qa</code>)</h2>
+    <p>
+      Validate any binary or ASCII <code>.stl</code> scan before spending fabrication time on a
+      corrupted file:
+    </p>
+    <pre><code>PYTHONPATH=src python3 -m op_core.cli qa ./demo_tt/sample_scan.stl --out-stl ./demo_tt/aligned.stl</code></pre>
+    <ul>
+      <li><code>floater_components_removed</code> — Detached background/table fragments automatically pruned.</li>
+      <li><code>proximal_cuff_loops</code> vs. <code>internal_tear_loops</code> — Verifies the open proximal cuff is intact and flags unintended scanning holes (<code>FAIL</code>).</li>
+      <li><code>double_wall_vertices</code> — Flags overlapping SLAM tracking surfaces (<code>FAIL</code> if <code>&gt; 15</code> stacked vertices).</li>
+      <li><code>seam_step_score_mm</code> — Flags sharp loop-closure ridge steps (<code>FAIL</code> if <code>&gt; 1.0 mm</code>).</li>
+      <li><code>detected_scale_ratio</code> — With <code>--measured-bar-mm</code> / <code>--expected-bar-mm</code>, flags scale drift exceeding <code>&plusmn;2.0%</code>.</li>
+      <li><code>slices</code> — Convex-hull taut-tape circumferences measured every <code>20 mm</code> downward from the Mid-Patellar Tendon (MPT) plane.</li>
+    </ul>
+
+    <h2>5. Compile &amp; Revise a Check-Socket Recipe (<code>build</code> + <code>diff</code>)</h2>
+    <pre><code>PYTHONPATH=src python3 -m op_core.cli build \
+  ./demo_tt/sample_scan.stl \
+  examples/tt_socket.oprecipe.json \
+  --out-dir ./build_v1 \
+  --target orcaslicer
+
+PYTHONPATH=src python3 -m op_core.cli diff \
+  examples/tt_socket.oprecipe.json \
+  examples/tt_socket_v2.oprecipe.json</code></pre>
+    <p>
+      Because <code>op-core</code> evaluates every relief in the undeformed reference mesh domain
+      <code>M<sub>0</sub></code>, relaxing global compression in a v2 check-socket revision will
+      not distort or shift surrounding anatomical reliefs.
+    </p>
+
+    <h2>6. Tests &amp; Reproducible Benchmarks</h2>
+    <pre><code>PYTHONPATH=src python3 -m unittest discover -s tests -v
+PYTHONPATH=src python3 scripts/run_experiments.py</code></pre>
+  </main>
+
+  <footer>
+    <a href="/op-core/">&larr; op-core overview</a> &middot;
+    <a href="/op-core/oprecipe-schema.html">next: .oprecipe.json schema &rarr;</a>
+  </footer>
+</body>
+</html>

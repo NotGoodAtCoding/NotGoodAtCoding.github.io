@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>op-core — Open-Source O&amp;P CAD/CAM Kernel</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <a class="site-title" href="/">NotGoodAtCoding</a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/op-core/" aria-current="page">op-core</a>
+      <a href="/playground/">playground</a>
+      <a href="/about.html">about</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>op-core (props)</h1>
+    <div class="meta">
+      <span class="tag">rust · wasm · webgl1 · o&amp;p cad/cam</span>
+      <a href="https://github.com/NotGoodAtCoding/props">GitHub repository &rarr;</a>
+    </div>
+
+    <p>
+      <strong><code>op-core</code></strong> (from the
+      <a href="https://github.com/NotGoodAtCoding/props"><code>NotGoodAtCoding/props</code></a>
+      project) is an open-source digital CAD/CAM kernel built to remove proprietary lock-in and
+      destructive mesh editing from <strong>Orthotics &amp; Prosthetics (O&amp;P)</strong>
+      workflows. The full geometry, rectification, shelling, and dual-CAM kernel is ported to
+      pure Rust and compiled to WebAssembly (<code>op-core-wasm</code>) so it runs 100% locally
+      in your browser with zero servers or patient data uploads.
+    </p>
+
+    <div class="controls" style="margin: 1.25rem 0 1.75rem;">
+      <a href="/op-core/workstation/" style="font-weight: 600;">Launch 3D Clinical Workstation &rarr;</a>
+      <span class="muted">&middot;</span>
+      <a href="https://github.com/NotGoodAtCoding/props">View source on GitHub</a>
+    </div>
+
+    <h2>Who It Is For &amp; What It Solves</h2>
+    <ul>
+      <li>
+        <strong>Practicing Clinicians (CPOs):</strong> Catch bad mobile scans chairside in seconds
+        (<code>qa</code>), verify <code>20 mm</code> landmark-anchored circumferences against tape
+        measurements, and record unambiguous check-socket revisions in portable
+        <code>.oprecipe.json</code> files.
+      </li>
+      <li>
+        <strong>O&amp;P Technicians &amp; Central Labs:</strong> Apply non-destructive socket and
+        AFO rectifications in the undeformed reference domain <code>M<sub>0</sub></code> without
+        topology drift, export watertight shells (<code>STL</code> + slicer-targeted
+        <code>.3mf</code> reinforcement modifiers) or CNC foam-carver molds &amp; 4-axis G-code,
+        and auto-generate custom-device traceability dossiers.
+      </li>
+      <li>
+        <strong>Biomedical &amp; CAD Engineers:</strong> Run deterministic, zero-dependency
+        geometry pipelines in Python or pure-Rust WebAssembly without Blender (<code>bpy</code>),
+        VTK, or OpenVDB installation friction.
+      </li>
+    </ul>
+
+    <h2>End-to-End Pipeline</h2>
+    <pre><code>  Raw Scan (.stl)
+        │
+        ▼
+  [ 1. Scan QA ] ─────────► Prune floaters, flag double walls / seam steps / tears,
+        │                   align +Z proximal, slice 20 mm MPT circumferences
+        ▼
+  [ 2. .oprecipe.json ] ──► Non-destructive liner offset, compression, reliefs,
+        │                   &amp; AFO ankle posture evaluated in reference domain M_0
+        ▼
+  [ 3. Compile &amp; Export ] ┬─► device_shell.stl        (watertight, MPT/AFO aligned)
+                          ├─► device_&lt;slicer&gt;.3mf     (100% distal/neck modifiers)
+                          ├─► carver_positive.stl     (keyed mandrel + 12° collar)
+                          ├─► carver_4axis.gcode      (GRBL/LinuxCNC rotary toolpath)
+                          └─► device_dossier.json/md/pdf (safety lint + audit log)</code></pre>
+
+    <h2>Interactive App &amp; Documentation</h2>
+    <ul class="list">
+      <li>
+        <a href="/op-core/workstation/"><strong>3D Clinical Workstation (Rust + WASM)</strong></a>
+        <span class="tag">live webgl app</span>
+      </li>
+      <li>
+        <a href="/op-core/getting-started.html">Getting Started Guide</a>
+        <span class="muted">Workstation walkthrough, CLI demo, QA, build &amp; diff</span>
+      </li>
+      <li>
+        <a href="/op-core/oprecipe-schema.html"><code>.oprecipe.json</code> v0.1 Schema</a>
+        <span class="muted">Canonical limb frame, fields, operations &amp; hardware bosses</span>
+      </li>
+      <li>
+        <a href="/op-core/reference.html">CLI, Benchmarks &amp; Kernel Reference</a>
+        <span class="muted">CLI flags, EXP-1–EXP-5 benchmarks, Python &amp; WASM APIs</span>
+      </li>
+      <li>
+        <a href="https://github.com/NotGoodAtCoding/props">GitHub Repository (<code>NotGoodAtCoding/props</code>)</a>
+        <span class="muted">Full Python package, experiments, FEA/Blender adapters &amp; issues</span>
+      </li>
+    </ul>
+
+    <p class="muted" style="margin-top: 1.5rem;">
+      Note: The browser workstation runs 100% client-side via WebAssembly and WebGL. If the 3D
+      viewport fails to initialize, check that Hardware Acceleration is enabled in your browser
+      settings.
+    </p>
+  </main>
+
+  <footer>
+    <a href="/">← back home</a> &middot;
+    <a href="https://github.com/NotGoodAtCoding/props">github.com/NotGoodAtCoding/props</a>
+  </footer>
+</body>
+</html>

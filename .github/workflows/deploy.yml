@@ -61,7 +61,7 @@ jobs:
           mkdir -p _site
           cp .nojekyll _site/
           cp *.html _site/
-          cp -r css playground _site/
+          cp -r css op-core playground _site/
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
