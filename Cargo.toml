@@ -5,6 +5,7 @@ members = [
     "crates/bevy-fox-ik",
     "crates/bevy-fox-course",
     "crates/bevy-voxel-wfc",
+    "crates/op-core-wasm",
 ]
 resolver = "2"
 

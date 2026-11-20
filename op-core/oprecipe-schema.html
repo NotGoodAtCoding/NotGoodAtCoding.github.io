@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>.oprecipe.json Schema — op-core</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <a class="site-title" href="/">NotGoodAtCoding</a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/op-core/" aria-current="page">op-core</a>
+      <a href="/playground/">playground</a>
+      <a href="/about.html">about</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1><code>.oprecipe.json</code> v0.1 Schema &amp; Authoring Guide</h1>
+    <div class="meta">
+      <a href="/op-core/">&larr; op-core overview</a>
+      <a href="/op-core/workstation/">launch workstation</a>
+      <a href="/op-core/getting-started.html">getting started</a>
+      <a href="/op-core/reference.html">CLI &amp; API reference</a>
+      <a href="https://github.com/NotGoodAtCoding/props">GitHub &rarr;</a>
+    </div>
+
+    <p>
+      Portable, deterministic rectification recipes evaluated in the undeformed reference mesh
+      domain <code>M<sub>0</sub></code>. Ready-to-run JSON examples live in
+      <a href="https://github.com/NotGoodAtCoding/props/tree/main/examples"><code>examples/</code> on GitHub</a>.
+    </p>
+
+    <h2>1. Canonical Coordinate System</h2>
+    <p>
+      All <code>.oprecipe.json</code> v0.1 coordinates assume the scan has passed through
+      <code>align_canonical_limb()</code>:
+    </p>
+    <ul>
+      <li><strong>Units:</strong> Millimeters (<code>"units": "mm"</code> required).</li>
+      <li><strong><code>+Z</code> axis:</strong> Proximal (up toward knee/hip).</li>
+      <li><strong><code>z = 0.0</code> (TT sockets):</strong> Mid-Patellar Tendon (MPT) reference plane; distal limb extends into <code>-Z</code>.</li>
+      <li><strong><code>+Y</code> axis:</strong> Anterior (toward patella / toes).</li>
+      <li><strong><code>+X</code> axis:</strong> Lateral (right-handed frame with <code>+Y</code>, <code>+Z</code>).</li>
+    </ul>
+
+    <h2>2. Top-Level Fields</h2>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Field</th>
+          <th>Type</th>
+          <th>Required</th>
+          <th>Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>schema_version</code></td><td><code>string</code></td><td>Yes</td><td><code>"0.1"</code></td></tr>
+        <tr><td><code>kernel_version</code></td><td><code>string</code></td><td>Yes</td><td>Pinned <code>op-core</code> kernel version (e.g. <code>"0.1.0"</code>) for deterministic replay.</td></tr>
+        <tr><td><code>units</code></td><td><code>string</code></td><td>Yes</td><td>Must be <code>"mm"</code>.</td></tr>
+        <tr><td><code>side</code></td><td><code>string</code></td><td>Yes</td><td><code>"left"</code> or <code>"right"</code>.</td></tr>
+        <tr><td><code>device_type</code></td><td><code>string</code></td><td>Yes</td><td><code>"transtibial_socket"</code>, <code>"transfemoral_socket"</code>, or <code>"afo"</code>.</td></tr>
+        <tr><td><code>scan_sha256</code></td><td><code>string</code></td><td>No</td><td>SHA-256 checksum of canonical input scan (auto-populated if blank during <code>build</code>).</td></tr>
+        <tr><td><code>scale_factor</code></td><td><code>float</code></td><td>No</td><td>Uniform scale multiplier (<code>1.0</code> default; must be <code>&gt; 0</code>).</td></tr>
+        <tr><td><code>liner_thickness_mm</code></td><td><code>float</code></td><td>No</td><td>Radial liner thickness (<code>0.0–12.0 mm</code>) subtracted inward along <code>N<sub>0</sub></code> before reliefs.</td></tr>
+        <tr><td><code>alignment</code></td><td><code>object</code></td><td>No</td><td><code>flexion_deg</code>, <code>adduction_deg</code>, and <code>mpt_offset_mm</code> (<code>[dx, dy]</code>) for TT/TF bench alignment.</td></tr>
+        <tr><td><code>landmarks</code></td><td><code>object</code></td><td>No</td><td>Map of landmark name &rarr; <code>{"vertex_idx": int}</code>, <code>{"face_idx": int, "bary": [u,v,w]}</code>, or <code>{"xyz": [x,y,z]}</code>.</td></tr>
+        <tr><td><code>operations</code></td><td><code>array</code></td><td>Yes</td><td>Ordered list of parametric rectification operations.</td></tr>
+        <tr><td><code>shell</code></td><td><code>object</code></td><td>No</td><td><code>wall_distal_mm</code>, <code>wall_proximal_mm</code>, <code>trimline_fillet_mm</code>, and <code>hardware</code>.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2>3. Supported <code>operations</code></h2>
+
+    <h3><code>global_compression</code> / <code>zoned_compression</code></h3>
+    <p>
+      Applies slice-wise XY radial percentage scaling around the limb's anatomical centerline with
+      <code>C<sup>2</sup></code> quintic transitions so Z-heights remain undistorted. Negative
+      <code>percent</code> compresses (reduces circumference); positive expands.
+    </p>
+    <pre><code>{
+  "id": "distal_zone",
+  "op": "zoned_compression",
+  "z_range_mm": [-200.0, -100.0],
+  "percent": -2.5,
+  "transition_mm": 20.0
+}</code></pre>
+
+    <h3><code>landmark_relief</code></h3>
+    <p>
+      Adds a smooth Gaussian geodesic build-up (<code>offset_mm &gt; 0</code>) or indentation
+      (<code>offset_mm &lt; 0</code>) centered at a named entry in <code>landmarks</code>,
+      evaluated in the undeformed reference domain <code>M<sub>0</sub></code>.
+    </p>
+    <pre><code>{
+  "id": "fibular_relief",
+  "op": "landmark_relief",
+  "landmark": "fibular_head",
+  "offset_mm": 4.0,
+  "radius_mm": 24.0
+}</code></pre>
+
+    <h3><code>afo_posture</code> (AFO only)</h3>
+    <p>
+      Smoothly neutralizes plantarflexed/inverted foot-ankle scans around the oblique talocrural
+      axis and flattens the plantar sole at footwear heel-height pitch before shelling.
+    </p>
+    <pre><code>{
+  "id": "neutralize_ankle",
+  "op": "afo_posture",
+  "dorsiflexion_deg": 12.0,
+  "eversion_deg": 5.0,
+  "heel_pitch_mm": 10.0
+}</code></pre>
+
+    <h2>4. <code>shell.hardware</code> Options</h2>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Value</th>
+          <th>Device</th>
+          <th>Geometry Generated</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>"pyramid_50_8_m6_captive"</code></td>
+          <td>TT / TF Sockets</td>
+          <td>Bench-aligned <code>50.8 mm</code> (2-inch) BCD 4-hole flange with recessed hexagonal captive M6 nut pockets.</td>
+        </tr>
+        <tr>
+          <td><code>"afo_coaxial_joint"</code></td>
+          <td>AFO</td>
+          <td>Thickened medial/lateral ankle pads aligned orthogonally to line of progression (no pyramid).</td>
+        </tr>
+        <tr>
+          <td><code>"none"</code></td>
+          <td>Any</td>
+          <td>Variable-thickness shell without hardware bosses.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </main>
+
+  <footer>
+    <a href="/op-core/getting-started.html">&larr; getting started</a> &middot;
+    <a href="/op-core/reference.html">next: CLI &amp; kernel reference &rarr;</a>
+  </footer>
+</body>
+</html>

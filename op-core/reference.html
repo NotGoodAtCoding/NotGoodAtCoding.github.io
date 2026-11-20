@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CLI, Benchmarks &amp; Kernel Reference — op-core</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <a class="site-title" href="/">NotGoodAtCoding</a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/op-core/" aria-current="page">op-core</a>
+      <a href="/playground/">playground</a>
+      <a href="/about.html">about</a>
+    </nav>
+  </header>
+
+  <main>
+    <h1>CLI, Benchmarks &amp; Kernel Reference</h1>
+    <div class="meta">
+      <a href="/op-core/">&larr; op-core overview</a>
+      <a href="/op-core/workstation/">launch workstation</a>
+      <a href="/op-core/getting-started.html">getting started</a>
+      <a href="/op-core/oprecipe-schema.html">.oprecipe schema</a>
+      <a href="https://github.com/NotGoodAtCoding/props">GitHub &rarr;</a>
+    </div>
+
+    <h2>1. Rust WebAssembly Facade (<code>OpCoreWasm</code>)</h2>
+    <p>
+      The in-browser <a href="/op-core/workstation/">3D Clinical Workstation</a> compiles
+      <code>crates/op-core-wasm</code> to <code>wasm32-unknown-unknown</code> and exposes a
+      stateful <code>#[wasm_bindgen]</code> facade over <code>WorkstationKernel</code>:
+    </p>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Method</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>new OpCoreWasm()</code></td><td>Creates an in-browser stateful O&amp;P CAD/CAM workstation session.</td></tr>
+        <tr><td><code>load_sample(device)</code></td><td>Generates a procedural clinical mesh (<code>"tt"</code>, <code>"tf"</code>, or <code>"afo"</code>) and runs Scan QA.</td></tr>
+        <tr><td><code>upload_stl(stl_bytes)</code></td><td>Parses binary or ASCII <code>.stl</code> bytes locally, repairs winding/floaters, and runs Scan QA.</td></tr>
+        <tr><td><code>rectify(recipe_json)</code></td><td>Evaluates an <code>.oprecipe.json</code> string in <code>M<sub>0</sub></code> and returns rectified mesh + radial deltas.</td></tr>
+        <tr><td><code>diff_recipe(recipe_json)</code></td><td>Computes structured revision diff JSON versus the intake baseline.</td></tr>
+        <tr><td><code>build(recipe_json, target)</code></td><td>Compiles watertight shell, <code>.3mf</code> (<code>orcaslicer</code> / <code>prusaslicer</code>), CNC carver mold/G-code, safety lint, and PDF dossier.</td></tr>
+        <tr><td><code>get_artifact_bytes(filename)</code></td><td>Returns raw binary artifact bytes (<code>device_shell.stl</code>, <code>device_orcaslicer.3mf</code>, etc.) for direct Blob download.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2>2. Python Command-Line Tools (<code>op-core</code>)</h2>
+    <p>
+      From the <a href="https://github.com/NotGoodAtCoding/props"><code>props</code></a> repo,
+      run via <code>PYTHONPATH=src python3 -m op_core.cli &lt;command&gt;</code>:
+    </p>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Command</th>
+          <th>Summary &amp; Key Flags</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ui</code></td>
+          <td>Launches the local zero-dependency WebGL 3D workstation (<code>--host 127.0.0.1</code>, <code>--port 8765</code>, <code>--no-browser</code>).</td>
+        </tr>
+        <tr>
+          <td><code>demo</code></td>
+          <td>Generates a synthetic TT or AFO case and compiles all outputs (<code>--out-dir</code>, <code>--device {tt,afo}</code>, <code>--target {orcaslicer,prusaslicer}</code>).</td>
+        </tr>
+        <tr>
+          <td><code>qa</code></td>
+          <td>Prunes floaters, flags tears/double walls/seam steps, aligns <code>+Z</code> proximal, and slices <code>20 mm</code> circumferences (<code>--out-stl</code>, <code>--measured-bar-mm</code>, <code>--expected-bar-mm</code>).</td>
+        </tr>
+        <tr>
+          <td><code>build</code></td>
+          <td>Compiles <code>scan.stl</code> + <code>.oprecipe.json</code> into <code>rectified_positive.stl</code>, <code>device_shell.stl</code>, <code>device_&lt;target&gt;.3mf</code>, <code>carver_positive.stl</code>, and <code>device_dossier</code>.</td>
+        </tr>
+        <tr>
+          <td><code>lint</code></td>
+          <td>Audits any shell <code>.stl</code> for watertight 2-manifoldness, minimum wall thickness (<code>--min-wall-mm 2.5</code>), trimline smoothness, and load-axis tilt.</td>
+        </tr>
+        <tr>
+          <td><code>diff</code></td>
+          <td>Prints a structured JSON diff between two <code>.oprecipe.json</code> revisions.</td>
+        </tr>
+        <tr>
+          <td><code>cam</code></td>
+          <td>Generates GRBL/LinuxCNC 4-axis rotary foam-carver G-code (<code>X</code>, <code>Z</code>, <code>A</code>) and verifies ball-nose stock removal (<code>RMS &le; 0.5 mm</code>, 0 gouges).</td>
+        </tr>
+        <tr>
+          <td><code>compare</code></td>
+          <td>Rigidly registers a follow-up scan onto a baseline via 3D ICP and reports surface deviation &amp; limb volume change (<code>%</code>).</td>
+        </tr>
+        <tr>
+          <td><code>gait</code></td>
+          <td>Parses OpenCap / OpenSim <code>.mot</code> kinematics and GRF tables to flag asymmetry, drop-foot, and ISO 10328 peak load sizing.</td>
+        </tr>
+        <tr>
+          <td><code>doctor</code></td>
+          <td>Probes optional accelerators (<code>numpy</code>, <code>scipy</code>, <code>trimesh</code>, <code>manifold3d</code>, <code>ampscan</code>) and external binaries (<code>ccx</code>, <code>gmsh</code>, <code>blender</code>).</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2>3. Validation Benchmarks (<code>scripts/run_experiments.py</code>)</h2>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th><code>--exp</code></th>
+          <th>Benchmarks Executed</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td><code>EXP-1</code></td><td>5-seed tilted/noisy <code>20 mm</code> circumference error + 5-seed corrupted-scan detection.</td></tr>
+        <tr><td><code>EXP-2</code></td><td>Reference-domain <code>M<sub>0</sub></code> zoned-isolation drift + global-scale relief-height invariance.</td></tr>
+        <tr><td><code>EXP-2B_and_EXP-3</code></td><td>10 watertight MPT-aligned TT shells + 5 neutralized sole-flattened AFO shells.</td></tr>
+        <tr><td><code>EXP-4_and_EXP-5</code></td><td>Dual-schema <code>.3mf</code> checks, safety linter discrimination, and 5 keyed carver positives.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h2>4. Core Kernel Modules</h2>
+    <p>
+      Both the Python reference kernel (<code>src/op_core/</code>) and the Rust WebAssembly port
+      (<code>crates/op-core-wasm/src/</code>) share the same modular architecture:
+    </p>
+    <ul>
+      <li><code>mesh</code> &amp; <code>math3d</code> — Pure triangle mesh, manifold audit, Dijkstra geodesics, binary/ASCII STL I/O, Rodrigues rotations, 3&times;3 Jacobi PCA, 2D convex hull, <code>C<sup>2</sup></code> quintic smoothstep.</li>
+      <li><code>scan_qa</code> &amp; <code>repair</code> — Vertex welding, consistent winding repair, hole filling, floater pruning, double-wall &amp; seam-step detection, canonical limb alignment, <code>20 mm</code> taut-tape slicing.</li>
+      <li><code>recipe</code> &amp; <code>rectify</code> — <code>.oprecipe.json</code> v0.1 validation, revision diffing, non-destructive <code>M<sub>0</sub></code> geodesic reliefs, sculpt strokes, Taubin smoothing, and AFO posture neutralization.</li>
+      <li><code>shell</code>, <code>export_3mf</code>, <code>carver_cam</code>, &amp; <code>linter</code> — Variable-thickness TT/TF/AFO shells, pyramid &amp; coaxial hardware bosses, OrcaSlicer/PrusaSlicer <code>.3mf</code> modifier meshes, 4-axis rotary foam-carver molds &amp; G-code, pre-print safety linter, and archival JSON/MD/PDF dossiers.</li>
+    </ul>
+
+    <h3>Minimal Python API Example</h3>
+    <pre><code>from op_core import OpRecipe, apply_recipe, build_tt_socket_shell, export_3mf, run_scan_qa
+from op_core.synthetic import generate_transtibial_limb
+
+case = generate_transtibial_limb(open_cuff=True, seed=0)
+aligned, qa = run_scan_qa(
+    case.mesh,
+    mpt_point=case.landmark_coords["mpt"],
+    distal_point=case.landmark_coords["distal_end"],
+)
+recipe = OpRecipe.load("examples/tt_socket.oprecipe.json")
+
+rect = apply_recipe(aligned, recipe)
+shell_res = build_tt_socket_shell(rect.rectified_mesh, flexion_deg=5.0, adduction_deg=5.0)
+export_3mf(shell_res.shell_mesh, shell_res.modifier_mesh, "out/socket.3mf", target="orcaslicer")</code></pre>
+  </main>
+
+  <footer>
+    <a href="/op-core/oprecipe-schema.html">&larr; .oprecipe.json schema</a> &middot;
+    <a href="/op-core/">op-core overview</a> &middot;
+    <a href="https://github.com/NotGoodAtCoding/props">GitHub</a>
+  </footer>
+</body>
+</html>
