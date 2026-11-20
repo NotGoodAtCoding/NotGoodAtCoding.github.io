@@ -447,6 +447,7 @@ pub struct WfcSolver {
     pass1_entropy: Vec<f64>,
     cell_tiebreak: Vec<f64>,
     phase: WfcPhase,
+    pass1_initial_collapsed: usize,
     pass1_collapsed: usize,
     pass1_total: usize,
     last_checkpoint_collapsed: usize,
@@ -489,6 +490,7 @@ impl WfcSolver {
             pass1_entropy: vec![0.0; CELL_COUNT],
             cell_tiebreak: vec![0.0; CELL_COUNT],
             phase: WfcPhase::Pass1Geology,
+            pass1_initial_collapsed: 0,
             pass1_collapsed: 0,
             pass1_total: CELL_COUNT,
             last_checkpoint_collapsed: 0,
@@ -557,7 +559,14 @@ impl WfcSolver {
     pub fn progress_percent(&self) -> f32 {
         match self.phase {
             WfcPhase::Pass1Geology => {
-                (self.pass1_collapsed as f32 / self.pass1_total.max(1) as f32) * 70.0
+                let done = self
+                    .pass1_collapsed
+                    .saturating_sub(self.pass1_initial_collapsed);
+                let total = self
+                    .pass1_total
+                    .saturating_sub(self.pass1_initial_collapsed)
+                    .max(1);
+                (done as f32 / total as f32) * 70.0
             }
             WfcPhase::Pass2Ponds => {
                 let p = if self.pond_total == 0 {
@@ -682,7 +691,8 @@ impl WfcSolver {
 
         let y_sea = self.field.sea_level;
         for idx in 0..CELL_COUNT {
-            let (_x, y, _z) = index_coords(idx);
+            let (x, y, z) = index_coords(idx);
+            let target_h = self.field.height_at(x, z);
             let mut mask = PASS1_MASK;
             if y == 0 {
                 mask = Tile::DeepRock.bit();
@@ -696,6 +706,15 @@ impl WfcSolver {
                 }
                 if y >= 14 {
                     mask &= !Tile::Grass.bit();
+                }
+                // Upper-sky envelope: prevent high open cells from rolling CliffRock
+                // and cascading into 1x1 vertical spires via AC-3 gravity constraints.
+                if (y as f32) > target_h + 1.5 {
+                    mask = if y <= y_sea {
+                        Tile::Water.bit()
+                    } else {
+                        Tile::Air.bit()
+                    };
                 }
             }
             self.cells[idx] = mask;
@@ -713,6 +732,7 @@ impl WfcSolver {
         }
         self.recompute_all_pass1_entropies();
         self.recount_pass1_collapsed();
+        self.pass1_initial_collapsed = self.pass1_collapsed;
         self.last_checkpoint_collapsed = self.pass1_collapsed;
         self.save_checkpoint();
     }
@@ -1540,6 +1560,32 @@ mod tests {
                             _ => {}
                         }
                     }
+                }
+            }
+
+            // Ensure no runaway 1x1 rock spires stick >= 3 voxels above all 4 cardinal neighbors.
+            let mut top_land = [[0usize; GRID_SIZE]; GRID_SIZE];
+            for (x, col) in top_land.iter_mut().enumerate() {
+                for (z, slot) in col.iter_mut().enumerate() {
+                    for y in (0..GRID_SIZE).rev() {
+                        if solver.tile_at(x, y, z).is_some_and(Tile::is_land) {
+                            *slot = y;
+                            break;
+                        }
+                    }
+                }
+            }
+            for x in 1..(GRID_SIZE - 1) {
+                for z in 1..(GRID_SIZE - 1) {
+                    let h = top_land[x][z];
+                    let max_nb = top_land[x - 1][z]
+                        .max(top_land[x + 1][z])
+                        .max(top_land[x][z - 1])
+                        .max(top_land[x][z + 1]);
+                    assert!(
+                        h <= max_nb + 2,
+                        "seed '{seed}': isolated 1x1 spire at ({x},{z}) height={h}, max_neighbor={max_nb}"
+                    );
                 }
             }
         }

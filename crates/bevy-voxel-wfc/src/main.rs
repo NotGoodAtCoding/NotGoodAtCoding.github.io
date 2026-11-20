@@ -35,9 +35,9 @@ use crate::rng::Prng;
 use crate::wfc::{DioramaStats, WfcPhase, WfcSolver};
 
 const DEFAULT_SEED: &str = "alpine-42";
-const PASS1_STEPS_PER_FRAME: usize = 110;
-const PASS2_STEPS_PER_FRAME: usize = 8;
-const PASS3_STEPS_PER_FRAME: usize = 40;
+const PASS1_STEPS_PER_FRAME: usize = 18;
+const PASS2_STEPS_PER_FRAME: usize = 2;
+const PASS3_STEPS_PER_FRAME: usize = 14;
 
 #[derive(Resource)]
 struct WfcState {
