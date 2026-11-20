@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bevy 3D Voxel WFC Diorama — NotGoodAtCoding</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <a class="site-title" href="/">NotGoodAtCoding</a>
+    <nav>
+      <a href="/">home</a>
+      <a href="/playground/" aria-current="page">playground</a>
+      <a href="/about.html">about</a>
+    </nav>
+  </header>
+
+  <main class="wide">
+    <h1>Bevy 3D Voxel WFC Diorama</h1>
+    <div class="meta">
+      <span class="tag">rust · bevy 0.18 · wfc · voxel · webgl2</span>
+      <span>20&times;20&times;20 3D bitmask Wave Function Collapse with alpine mountain ponds</span>
+      <a href="./notes.html">how it works &amp; WFC notes &rarr;</a>
+    </div>
+
+    <div class="controls">
+      <label for="seed-input" class="muted">Seed</label>
+      <input id="seed-input" type="text" value="alpine-42" spellcheck="false" autocomplete="off">
+      <button id="btn-generate" type="button">Generate</button>
+      <button id="btn-random" type="button">Random Seed</button>
+      <label class="check"><input id="chk-animate" type="checkbox" checked> Animate</label>
+      <button id="btn-instant" type="button">Finish Now</button>
+    </div>
+
+    <div class="stage">
+      <canvas id="bevy-canvas" tabindex="0"></canvas>
+      <div id="status" class="status">Loading Bevy 3D Voxel WFC WebGL2 module&hellip;</div>
+    </div>
+
+    <p class="muted">
+      <strong>Controls:</strong>
+      <code>Left-Drag</code> orbit diorama &middot;
+      <code>Scroll</code> zoom &middot;
+      <code>Q/E/W/S</code> or <code>Arrows</code> orbit &amp; tilt &middot;
+      <code>T</code> toggle turntable spin &middot;
+      <code>R</code> random seed &middot;
+      <code>Space</code> pause/resume animated collapse &middot;
+      <code>F</code> finish solve instantly.
+    </p>
+
+    <p class="muted">
+      Generates a deterministic <code>20&times;20&times;20</code> cutaway voxel diorama in three
+      passes: <strong>Pass 1</strong> runs 15-state <code>u16</code> bitmask WFC with AC-3
+      propagation so land never floats, sea settles flat, and steep drops become cliff rock;
+      <strong>Pass 2</strong> runs Barnes Priority-Flood to fill enclosed highland bowls into
+      elevated alpine ponds; <strong>Pass 3</strong> grows complete directional-leaf trees and
+      meadow shrubs strictly on arable grass.
+    </p>
+
+    <p class="muted">
+      Note: WebGL2 is required to run this example. If it fails to start, check that
+      Hardware Acceleration is enabled in your browser settings.
+    </p>
+  </main>
+
+  <footer>
+    <a href="/playground/">&larr; all playgrounds</a>
+  </footer>
+
+  <script type="module">
+    const canvas = document.getElementById("bevy-canvas");
+    const status = document.getElementById("status");
+    const seedInput = document.getElementById("seed-input");
+    const btnGenerate = document.getElementById("btn-generate");
+    const btnRandom = document.getElementById("btn-random");
+    const chkAnimate = document.getElementById("chk-animate");
+    const btnInstant = document.getElementById("btn-instant");
+
+    const GAME_KEYS = new Set(["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
+    const SEED_PREFIXES = [
+      "alpine", "tarn", "ridge", "fjord", "cove", "crag", "meadow", "basalt", "glade", "caldera"
+    ];
+
+    const focusCanvas = () => canvas.focus({ preventScroll: true });
+
+    canvas.addEventListener("pointerdown", focusCanvas);
+    canvas.addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
+    canvas.addEventListener("keydown", (e) => {
+      if (GAME_KEYS.has(e.code)) e.preventDefault();
+      if (e.code === "KeyR" && hooks) {
+        setTimeout(() => {
+          if (document.activeElement !== seedInput) {
+            const current = hooks.wfc_get_seed();
+            if (current) seedInput.value = current;
+          }
+        }, 60);
+      }
+    });
+
+    // Keep typing inside the seed input isolated from canvas keyboard shortcuts.
+    seedInput.addEventListener("keyup", (e) => e.stopPropagation());
+
+    let hooks = null;
+    let pendingGenerate = false;
+    let pendingFinish = false;
+
+    const triggerGenerate = () => {
+      if (!hooks) {
+        pendingGenerate = true;
+        return;
+      }
+      hooks.wfc_set_seed(seedInput.value, chkAnimate.checked);
+    };
+
+    seedInput.addEventListener("keydown", (e) => {
+      e.stopPropagation();
+      if (e.key === "Enter") {
+        e.preventDefault();
+        triggerGenerate();
+        focusCanvas();
+      } else if (e.key === "Escape") {
+        focusCanvas();
+      }
+    });
+
+    btnGenerate.addEventListener("click", () => {
+      triggerGenerate();
+      focusCanvas();
+    });
+
+    btnRandom.addEventListener("click", () => {
+      const prefix = SEED_PREFIXES[Math.floor(Math.random() * SEED_PREFIXES.length)];
+      const num = 100 + Math.floor(Math.random() * 900);
+      seedInput.value = `${prefix}-${num}`;
+      triggerGenerate();
+      focusCanvas();
+    });
+
+    chkAnimate.addEventListener("change", () => {
+      if (hooks) hooks.wfc_set_animate(chkAnimate.checked);
+      focusCanvas();
+    });
+
+    btnInstant.addEventListener("click", () => {
+      if (hooks) {
+        hooks.wfc_finish_now();
+      } else {
+        pendingFinish = true;
+      }
+      focusCanvas();
+    });
+
+    const onReady = (wasmMod) => {
+      hooks = wasmMod;
+      status.hidden = true;
+      if (pendingGenerate || seedInput.value !== "alpine-42" || !chkAnimate.checked) {
+        hooks.wfc_set_seed(seedInput.value, chkAnimate.checked);
+      }
+      if (pendingFinish) {
+        hooks.wfc_finish_now();
+      }
+      focusCanvas();
+    };
+
+    const probe = document.createElement("canvas").getContext("webgl2");
+    if (!probe) {
+      status.textContent =
+        "WebGL2 is unavailable. Check that Hardware Acceleration is enabled in your browser settings.";
+    } else {
+      probe.getExtension("WEBGL_lose_context")?.loseContext();
+      let wasmMod = null;
+      try {
+        wasmMod = await import("./pkg/bevy_voxel_wfc.js");
+        await wasmMod.default();
+        onReady(wasmMod);
+      } catch (err) {
+        // winit/Bevy throws a benign control-flow exception when starting its web event loop.
+        if (err?.message?.includes("Using exceptions for control flow") && wasmMod) {
+          onReady(wasmMod);
+        } else {
+          status.textContent =
+            "WASM bundle not built yet (expected ./pkg/bevy_voxel_wfc.js).";
+          console.error(err);
+        }
+      }
+    }
+  </script>
+</body>
+</html>

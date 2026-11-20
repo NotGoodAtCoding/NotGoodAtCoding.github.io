@@ -4,6 +4,7 @@ members = [
     "crates/bevy-scene",
     "crates/bevy-fox-ik",
     "crates/bevy-fox-course",
+    "crates/bevy-voxel-wfc",
 ]
 resolver = "2"
 
